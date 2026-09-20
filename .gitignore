@@ -34,3 +34,5 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# legacy SQLite backup (imported into Postgres by scripts/import-sqlite.ts)
+data/

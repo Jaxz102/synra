@@ -1,0 +1,23 @@
+# PostgreSQL for Synra, run by OrbStack (`bun run db:up`). Schema is managed by Drizzle: `bun run db:migrate`.
+# Reachable at synradb.orb.local:5432 via OrbStack container domains (preferred), or localhost:5433 from GUI tools.
+services:
+  synradb:
+    image: postgres:16-alpine
+    container_name: synradb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: synradb
+      POSTGRES_USER: synra
+      POSTGRES_PASSWORD: synra
+    ports:
+      - "5433:5432"
+    volumes:
+      - synradb-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U synra -d synradb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  synradb-data:
