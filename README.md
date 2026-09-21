@@ -46,6 +46,10 @@ bun run poll --reset --lookback 24   # clear the cursor and re-scan the last 24h
 bun run build && bun run start
 ```
 
+### Deploying to Vercel
+
+`vercel.json` opts the project into Vercel's Bun runtime (`bunVersion: "1.x"`, so the Bun.SQL driver works unchanged) and registers a Vercel Cron that hits `GET /api/cron/poll` every 6 hours. Leave the build/install/output settings on their defaults and set these environment variables: `PRODUCTION_DATABASE_URL` (Neon), `XAI_API_KEY`, `SEC_USER_AGENT`, `ALPACA_KEY`, `ALPACA_SECRET`, `CRON_SECRET` (any random string; Vercel sends it as a bearer token), and `SYNRA_SCHEDULER=0` — the in-process `setTimeout` scheduler cannot survive serverless invocations, so the cron replaces it.
+
 ## Configuration (`.env`)
 
 | Variable | Default | Purpose |
@@ -57,7 +61,8 @@ bun run build && bun run start
 | `INITIAL_LOOKBACK_HOURS` | `12` | Window scanned on the very first run (no cursor yet) |
 | `MAX_FEED_PAGES` | `20` | Cap on 100-entry feed pages per run |
 | `HISTORY_MONTHS` / `HISTORY_MAX_FILINGS` | `24` / `20` | Insider history sent to Grok |
-| `SYNRA_SCHEDULER` | `1` | Set `0` to disable the in-process scheduler (use `bun run poll` from cron instead) |
+| `SYNRA_SCHEDULER` | `1` | Set `0` to disable the in-process scheduler (use `bun run poll` from cron, or Vercel Cron, instead) |
+| `CRON_SECRET` | — | Vercel only: bearer token Vercel Cron sends to `GET /api/cron/poll` (`vercel.json`, every 6h). Set `SYNRA_SCHEDULER=0` alongside it |
 | `DATABASE_URL` | `postgres://synra:synra@localhost:5433/synradb?sslmode=disable` | Postgres connection string for development (all state lives here) |
 | `PRODUCTION_DATABASE_URL` | — | Used **instead of** `DATABASE_URL` when `NODE_ENV=production` (`bun run build && bun run start`). Point it at Neon with `?sslmode=require`; required in production. Bootstrap the schema by running `scripts/neon-schema.sql` in the Neon SQL editor (or `NODE_ENV=production bun run db:migrate`) |
 | `ALPACA_KEY` / `ALPACA_SECRET` | — | Alpaca paper-trading keys; every posted trade places a market buy of the ticker (skipped with a logged error when unset) |
