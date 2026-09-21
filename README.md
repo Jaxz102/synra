@@ -48,7 +48,17 @@ bun run build && bun run start
 
 ### Deploying to Vercel
 
-`vercel.json` opts functions into Vercel's Bun runtime (`bunVersion: "1.x"` — Bun 1.3; `1.4.x` was ignored by the Next 16 Vercel adapter, see vercel/next.js#91720) and registers a Vercel Cron that hits `GET /api/cron/poll` every 6 hours. Leave the build/install/output settings on their defaults and set these environment variables: `PRODUCTION_DATABASE_URL` (Neon), `XAI_API_KEY`, `SEC_USER_AGENT`, `ALPACA_KEY`, `ALPACA_SECRET`, `CRON_SECRET` (any random string; Vercel sends it as a bearer token), and `SYNRA_SCHEDULER=0` — the in-process `setTimeout` scheduler cannot survive serverless invocations, so the cron replaces it. The database driver is postgres.js, so the app also works if a deployment falls back to the Node runtime.
+`vercel.json` opts functions into Vercel's Bun runtime (`bunVersion: "1.x"` — Bun 1.3; `1.4.x` was ignored by the Next 16 Vercel adapter, see vercel/next.js#91720) Leave the build/install/output settings on their defaults and set these environment variables: `PRODUCTION_DATABASE_URL` (Neon), `XAI_API_KEY`, `SEC_USER_AGENT`, `ALPACA_KEY`, `ALPACA_SECRET`, `CRON_SECRET` (any random string), and `SYNRA_SCHEDULER=0` — the in-process `setTimeout` scheduler cannot survive serverless invocations. The database driver is postgres.js, so the app also works if a deployment falls back to the Node runtime.
+
+Polling is driven by an **external scheduler** (Vercel's Hobby plan only allows daily crons, so `vercel.json` registers none). Have a GitHub Actions workflow, cron-job.org, or similar call the poll endpoint every 6 hours:
+
+```bash
+curl --fail-with-body -sS -X GET \
+  -H "Authorization: Bearer $CRON_SECRET" \
+  https://<your-deployment>.vercel.app/api/cron/poll
+```
+
+The route awaits the full run and returns its summary as JSON (`401` on a bad token, `409` if a run is already in progress, `503` if `CRON_SECRET` is unset). The cursor advances per filing, so a run cut off by the function timeout (60s on Hobby) simply resumes on the next call — if a tick regularly runs out of time, call the endpoint two or three times in a row or shorten the interval.
 
 ## Configuration (`.env`)
 
@@ -61,8 +71,8 @@ bun run build && bun run start
 | `INITIAL_LOOKBACK_HOURS` | `12` | Window scanned on the very first run (no cursor yet) |
 | `MAX_FEED_PAGES` | `20` | Cap on 100-entry feed pages per run |
 | `HISTORY_MONTHS` / `HISTORY_MAX_FILINGS` | `24` / `20` | Insider history sent to Grok |
-| `SYNRA_SCHEDULER` | `1` | Set `0` to disable the in-process scheduler (use `bun run poll` from cron, or Vercel Cron, instead) |
-| `CRON_SECRET` | — | Vercel only: bearer token Vercel Cron sends to `GET /api/cron/poll` (`vercel.json`, every 6h). Set `SYNRA_SCHEDULER=0` alongside it |
+| `SYNRA_SCHEDULER` | `1` | Set `0` to disable the in-process scheduler (use `bun run poll` from cron, or an external caller of `/api/cron/poll`, instead) |
+| `CRON_SECRET` | — | Bearer token an external scheduler (e.g. GitHub Actions, every 6h) must send to `GET /api/cron/poll`. Set `SYNRA_SCHEDULER=0` alongside it on Vercel |
 | `DATABASE_URL` | `postgres://synra:synra@localhost:5433/synradb?sslmode=disable` | Postgres connection string for development (all state lives here) |
 | `PRODUCTION_DATABASE_URL` | — | Used **instead of** `DATABASE_URL` when `NODE_ENV=production` (`bun run build && bun run start`). Point it at Neon with `?sslmode=require`; required in production. Bootstrap the schema by running `scripts/neon-schema.sql` in the Neon SQL editor (or `NODE_ENV=production bun run db:migrate`) |
 | `ALPACA_KEY` / `ALPACA_SECRET` | — | Alpaca paper-trading keys; every posted trade places a market buy of the ticker (skipped with a logged error when unset) |

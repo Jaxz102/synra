@@ -37,7 +37,7 @@ export const env = {
   historyMonths: num(process.env.HISTORY_MONTHS, 24),
   historyMaxFilings: num(process.env.HISTORY_MAX_FILINGS, 20),
   schedulerEnabled: process.env.SYNRA_SCHEDULER !== "0",
-  /** Shared secret Vercel Cron sends as `Authorization: Bearer …` to /api/cron/poll. */
+  /** Shared secret an external scheduler must send as `Authorization: Bearer …` to /api/cron/poll. */
   cronSecret: process.env.CRON_SECRET?.trim() ?? "",
   /** Postgres connection string. Required: all state lives there. See `databaseUrl()`. */
   databaseUrl: databaseUrl(),

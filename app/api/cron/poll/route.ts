@@ -6,9 +6,10 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
 /**
- * Vercel Cron entry point (see vercel.json). Vercel sends a GET with
- * `Authorization: Bearer $CRON_SECRET`; the in-process scheduler is not viable on
- * serverless, so this awaits the run so the function is not frozen mid-poll.
+ * Scheduled-poll entry point for an external scheduler (GitHub Actions, cron-job.org,
+ * …) that sends a GET with `Authorization: Bearer $CRON_SECRET` every 6 hours. The
+ * in-process scheduler is not viable on serverless, so this awaits the run so the
+ * function is not frozen mid-poll.
  */
 export async function GET(req: Request) {
   if (!env.cronSecret) {
