@@ -48,7 +48,7 @@ bun run build && bun run start
 
 ### Deploying to Vercel
 
-`vercel.json` opts functions into Vercel's Bun runtime (`bunVersion: "1.4.x"`, matching the local Bun 1.4) and registers a Vercel Cron that hits `GET /api/cron/poll` every 6 hours. Leave the build/install/output settings on their defaults and set these environment variables: `PRODUCTION_DATABASE_URL` (Neon), `XAI_API_KEY`, `SEC_USER_AGENT`, `ALPACA_KEY`, `ALPACA_SECRET`, `CRON_SECRET` (any random string; Vercel sends it as a bearer token), and `SYNRA_SCHEDULER=0` — the in-process `setTimeout` scheduler cannot survive serverless invocations, so the cron replaces it. The database driver is postgres.js, so the app also works if a deployment falls back to the Node runtime.
+`vercel.json` opts functions into Vercel's Bun runtime (`bunVersion: "1.x"` — Bun 1.3; `1.4.x` was ignored by the Next 16 Vercel adapter, see vercel/next.js#91720) and registers a Vercel Cron that hits `GET /api/cron/poll` every 6 hours. Leave the build/install/output settings on their defaults and set these environment variables: `PRODUCTION_DATABASE_URL` (Neon), `XAI_API_KEY`, `SEC_USER_AGENT`, `ALPACA_KEY`, `ALPACA_SECRET`, `CRON_SECRET` (any random string; Vercel sends it as a bearer token), and `SYNRA_SCHEDULER=0` — the in-process `setTimeout` scheduler cannot survive serverless invocations, so the cron replaces it. The database driver is postgres.js, so the app also works if a deployment falls back to the Node runtime.
 
 ## Configuration (`.env`)
 
