@@ -269,4 +269,4 @@ console.log(
     2
   )
 )
-await db.$client.close()
+await db.$client.end()

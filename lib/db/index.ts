@@ -1,6 +1,6 @@
-import { SQL } from "bun"
 import { eq, sql } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/bun-sql"
+import { drizzle } from "drizzle-orm/postgres-js"
+import postgres from "postgres"
 
 import { env } from "@/lib/env"
 import * as schema from "@/lib/db/schema"
@@ -12,15 +12,17 @@ type G = typeof globalThis & { __synraDb?: Db }
 
 function create() {
   if (!env.databaseUrl) throw new Error("DATABASE_URL is not set")
-  const client = new SQL(env.databaseUrl, {
+  // postgres.js runs on both Bun (local) and Node (Vercel); Neon requires sslmode=require in the URL.
+  const client = postgres(env.databaseUrl, {
     max: 8,
-    connectionTimeout: 10,
-    idleTimeout: 60,
+    connect_timeout: 10,
+    idle_timeout: 60,
+    prepare: false,
   })
   return drizzle({ client, schema, casing: "snake_case" })
 }
 
-/** Drizzle over Bun's built-in Postgres client (synradb). One pool per process, survives Next dev reloads. */
+/** Drizzle over postgres.js. One pool per process, survives Next dev reloads. */
 export function getDb(): Db {
   const g = globalThis as G
   if (!g.__synraDb) g.__synraDb = create()

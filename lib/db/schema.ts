@@ -1,9 +1,9 @@
 import {
   bigint,
-  customType,
   doublePrecision,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   serial,
@@ -17,17 +17,6 @@ import type { IssuerProfile } from "@/lib/sec/issuer"
 
 // Column names are derived from the property names via `casing: "snake_case"` (see lib/db/index.ts and drizzle.config.ts).
 // Ids are SEC identifiers: stocks.id = issuer CIK, insiders.id = reporting-owner CIK, trades.id = accession number.
-
-/**
- * `jsonb` that hands the value to Bun.SQL as-is. Drizzle's built-in `jsonb()` JSON.stringifies first, and Bun.SQL
- * then encodes that string as a JSON string, so objects would land double-encoded (`jsonb_typeof = 'string'`).
- */
-const json = <T>() =>
-  customType<{ data: T; driverData: T }>({
-    dataType: () => "jsonb",
-    toDriver: (v) => v,
-    fromDriver: (v) => (typeof v === "string" ? (JSON.parse(v) as T) : v),
-  })()
 
 const timestamps = {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -94,13 +83,13 @@ export const trades = pgTable(
     // Dashboard detail beyond the ERD.
     postedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     sharesAfter: doublePrecision(),
-    transactions: json<TradeTransaction[]>().notNull(),
+    transactions: jsonb().$type<TradeTransaction[]>().notNull(),
     aiClassification: text(),
     aiConfidence: doublePrecision(),
     aiReasoning: text(),
     aiPattern: text(),
     aiModel: text(),
-    history: json<TradeHistory>(),
+    history: jsonb().$type<TradeHistory>(),
     filingUrl: text(),
     // Alpaca paper order placed when the trade was posted (see lib/alpaca/client.ts).
     alpacaOrderId: text(),
@@ -178,7 +167,7 @@ export const filings = pgTable(
     processedAt: timestamp({ withTimezone: true }),
     indexUrl: text(),
     xmlUrl: text(),
-    form: json<Form4>(),
+    form: jsonb().$type<Form4>(),
   },
   (t) => [
     index("filings_status_idx").on(t.status),
@@ -200,7 +189,7 @@ export const insiderAnalyses = pgTable(
     confidence: doublePrecision(),
     reasoning: text(),
     patternSummary: text(),
-    history: json<TradeHistory>(),
+    history: jsonb().$type<TradeHistory>(),
     promptTokens: integer(),
     completionTokens: integer(),
   },
@@ -212,13 +201,13 @@ export const insiderAnalyses = pgTable(
 export const form4Cache = pgTable("form4_cache", {
   accession: text().primaryKey(),
   fetchedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
-  form: json<Form4>().notNull(),
+  form: jsonb().$type<Form4>().notNull(),
 })
 
 export const issuerCache = pgTable("issuer_cache", {
   cik: text().primaryKey(),
   fetchedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
-  profile: json<IssuerProfile>().notNull(),
+  profile: jsonb().$type<IssuerProfile>().notNull(),
 })
 
 export type StockRow = typeof stocks.$inferSelect

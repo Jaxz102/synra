@@ -1,5 +1,5 @@
 /** Applies pending SQL migrations from drizzle/ to synradb: `bun run db:migrate`. */
-import { migrate } from "drizzle-orm/bun-sql/migrator"
+import { migrate } from "drizzle-orm/postgres-js/migrator"
 
 import { getDb } from "@/lib/db"
 
@@ -14,8 +14,8 @@ for (let attempt = 1; ; attempt++) {
     console.log(
       `[synra] database not ready (${(err as Error).message.split("\n")[0]}), retrying…`
     )
-    await Bun.sleep(1000)
+    await new Promise((r) => setTimeout(r, 1000))
   }
 }
 console.log("[synra] migrations applied")
-await db.$client.close()
+await db.$client.end()
