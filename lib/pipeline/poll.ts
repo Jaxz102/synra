@@ -487,13 +487,21 @@ export async function runPoll(
   const db = getDb()
   const started = new Date()
   const startedAt = started.toISOString()
-  const cursorBefore = await kvGet(CURSOR_KEY)
-  const [{ id: runId }] = await db
-    .insert(pollRuns)
-    .values({ trigger, status: "running", startedAt: started, cursorBefore })
-    .returning({ id: pollRuns.id })
+  // Take the lock before the first await so a second trigger in the same tick is rejected.
+  setLock({ runId: 0, startedAt })
+  let cursorBefore: string | null
+  let runId: number
+  try {
+    cursorBefore = await kvGet(CURSOR_KEY)
+    ;[{ id: runId }] = await db
+      .insert(pollRuns)
+      .values({ trigger, status: "running", startedAt: started, cursorBefore })
+      .returning({ id: pollRuns.id })
+  } catch (err) {
+    setLock(null)
+    throw err
+  }
   setLock({ runId, startedAt })
-  await kvSet(LAST_RUN_KEY, startedAt)
   const counters: RunCounters = {
     feed_entries: 0,
     new_filings: 0,
@@ -528,6 +536,7 @@ export async function runPoll(
       .where(eq(pollRuns.id, runId))
 
   try {
+    await kvSet(LAST_RUN_KEY, startedAt)
     const lookbackHours = opts.lookbackHours ?? env.initialLookbackHours
     const cursorMs = cursorBefore
       ? Date.parse(cursorBefore)
