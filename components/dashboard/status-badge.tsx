@@ -8,14 +8,6 @@ const META: Record<FilingStatus, { label: string; className: string }> = {
     className:
       "bg-primary/15 text-primary dark:bg-primary/25 dark:text-primary-foreground",
   },
-  skipped_routine: {
-    label: "Routine",
-    className: "bg-secondary text-secondary-foreground",
-  },
-  skipped_10b5_1: {
-    label: "10b5-1 plan",
-    className: "border-border text-muted-foreground",
-  },
   skipped_sell: {
     label: "Sale",
     className: "border-border text-muted-foreground",
@@ -23,6 +15,34 @@ const META: Record<FilingStatus, { label: string; className: string }> = {
   skipped_not_purchase: {
     label: "Not a purchase",
     className: "border-border text-muted-foreground",
+  },
+  skipped_10b5_1: {
+    label: "10b5-1 plan",
+    className: "border-border text-muted-foreground",
+  },
+  skipped_listing: {
+    label: "Not NYSE/Nasdaq",
+    className: "border-border text-muted-foreground",
+  },
+  skipped_routine: {
+    label: "Routine",
+    className: "bg-secondary text-secondary-foreground",
+  },
+  skipped_history: {
+    label: "Too little history",
+    className: "bg-secondary text-secondary-foreground",
+  },
+  skipped_market_cap: {
+    label: "Under $100M",
+    className: "bg-secondary text-secondary-foreground",
+  },
+  skipped_price: {
+    label: "Price ran",
+    className: "bg-secondary text-secondary-foreground",
+  },
+  skipped_order: {
+    label: "Not filled",
+    className: "bg-secondary text-secondary-foreground",
   },
   error: {
     label: "Error",

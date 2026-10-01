@@ -36,22 +36,17 @@ function Tile({
 
 export function StatTiles({ stats }: { stats: Stats }) {
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       <Tile
-        label="Signals posted"
+        label="Signals bought"
         value={fmtInt(stats.signals)}
-        sub={`${fmtInt(stats.signals24h)} in last 24h · ${fmtMoneyCompact(stats.signalValue24h)} bought`}
+        sub={`${fmtInt(stats.signals24h)} in last 24h · ${fmtMoneyCompact(stats.signalValue24h)} insider buys`}
         accent
       />
       <Tile
         label="Filings scanned"
         value={fmtInt(stats.scanned)}
-        sub={`${fmtInt(stats.scanned24h)} in last 24h${stats.pending ? ` · ${fmtInt(stats.pending)} pending` : ""}`}
-      />
-      <Tile
-        label="Skipped · 10b5-1 plans"
-        value={fmtInt(stats.planned)}
-        sub="Pre-scheduled trades"
+        sub={`${fmtInt(stats.scanned24h)} in last 24h${stats.pending ? ` · ${fmtInt(stats.pending)} pending` : ""}${stats.errors ? ` · ${fmtInt(stats.errors)} errors` : ""}`}
       />
       <Tile
         label="Skipped · sales & other"
@@ -59,13 +54,21 @@ export function StatTiles({ stats }: { stats: Stats }) {
         sub={`${fmtInt(stats.sells)} sales · ${fmtInt(stats.notPurchase)} grants, exercises, gifts`}
       />
       <Tile
-        label="Skipped · routine buys"
-        value={fmtInt(stats.routine)}
-        sub={
-          stats.errors
-            ? `Grok verdict · ${fmtInt(stats.errors)} errors`
-            : "Grok verdict"
-        }
+        label="Skipped · 10b5-1 plans"
+        value={fmtInt(stats.planned)}
+        sub="Pre-scheduled trades"
+      />
+      <Tile
+        label="Skipped · insider criteria"
+        value={fmtInt(stats.routine + stats.history)}
+        sub={`${fmtInt(stats.routine)} routine · ${fmtInt(stats.history)} too little history`}
+      />
+      <Tile
+        label="Skipped · listing, cap, price"
+        value={fmtInt(
+          stats.listing + stats.marketCap + stats.price + stats.order
+        )}
+        sub={`${fmtInt(stats.listing)} not NYSE/Nasdaq · ${fmtInt(stats.marketCap)} under $100M · ${fmtInt(stats.price)} price ran${stats.order ? ` · ${fmtInt(stats.order)} not filled` : ""}`}
       />
     </div>
   )

@@ -6,6 +6,8 @@ import { currentRun, runPoll } from "@/lib/pipeline/poll"
 export const dynamic = "force-dynamic"
 // The run continues in `after()` once the response is sent; it is still bounded by this limit.
 export const maxDuration = 300
+/** Stop starting new filings this long into the invocation, leaving room for one filing (incl. a fill wait) to finish. */
+const RUN_BUDGET_MS = 220_000
 
 export async function GET(req: Request) {
   if (!env.cronSecret) {
@@ -20,9 +22,10 @@ export async function GET(req: Request) {
       { status: 409 }
     )
   }
+  const deadline = Date.now() + RUN_BUDGET_MS
   after(async () => {
     try {
-      await runPoll("schedule")
+      await runPoll("schedule", { deadline })
     } catch (err) {
       console.error(`[synra] cron poll failed: ${(err as Error).message}`)
     }

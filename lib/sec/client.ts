@@ -1,33 +1,12 @@
 import { env } from "@/lib/env"
+import { sleep, throttle } from "@/lib/throttle"
 
-/** SEC allows at most 10 requests/second; we space requests ~8/s and retry on throttling. */
 const MIN_GAP_MS = 125
 const MAX_RETRIES = 4
 const REQUEST_TIMEOUT_MS = 90_000
 
-type G = typeof globalThis & {
-  __synraSecGate?: { chain: Promise<void>; last: number }
-}
-
-function gate() {
-  const g = globalThis as G
-  if (!g.__synraSecGate)
-    g.__synraSecGate = { chain: Promise.resolve(), last: 0 }
-  return g.__synraSecGate
-}
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-async function acquireSlot(): Promise<void> {
-  const s = gate()
-  const my = s.chain.then(async () => {
-    const wait = s.last + MIN_GAP_MS - Date.now()
-    if (wait > 0) await sleep(wait)
-    s.last = Date.now()
-  })
-  s.chain = my.catch(() => {})
-  await my
-}
+/** SEC allows at most 10 requests/second; we space requests ~8/s and retry on throttling. */
+const acquireSlot = throttle("sec", MIN_GAP_MS)
 
 export class SecHttpError extends Error {
   constructor(

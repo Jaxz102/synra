@@ -137,7 +137,12 @@ export interface Stats {
   planned: number
   sells: number
   notPurchase: number
+  listing: number
   routine: number
+  history: number
+  marketCap: number
+  price: number
+  order: number
   errors: number
   pending: number
 }
@@ -176,7 +181,12 @@ export async function getStats(): Promise<Stats> {
     planned: byStatus.get("skipped_10b5_1") ?? 0,
     sells: byStatus.get("skipped_sell") ?? 0,
     notPurchase: byStatus.get("skipped_not_purchase") ?? 0,
+    listing: byStatus.get("skipped_listing") ?? 0,
     routine: byStatus.get("skipped_routine") ?? 0,
+    history: byStatus.get("skipped_history") ?? 0,
+    marketCap: byStatus.get("skipped_market_cap") ?? 0,
+    price: byStatus.get("skipped_price") ?? 0,
+    order: byStatus.get("skipped_order") ?? 0,
     errors: byStatus.get("error") ?? 0,
     pending: (byStatus.get("queued") ?? 0) + (byStatus.get("processing") ?? 0),
   }
@@ -190,7 +200,6 @@ export interface PollStatus {
   nextRunAt: string | null
   intervalHours: number
   schedulerEnabled: boolean
-  model: string
 }
 
 export async function getPollStatus(): Promise<PollStatus> {
@@ -200,14 +209,19 @@ export async function getPollStatus(): Promise<PollStatus> {
     kvGet(CURSOR_KEY),
     listRuns(1),
   ])
+  // On Vercel the run lives in another invocation, so fall back to a recent run row still marked "running".
+  const recent =
+    lastRun?.status === "running" &&
+    Date.now() - Date.parse(lastRun.startedAt) < 15 * 60_000
   return {
-    running: currentRun(),
+    running:
+      currentRun() ??
+      (recent ? { runId: lastRun.id, startedAt: lastRun.startedAt } : null),
     lastRunStartedAt,
     lastRun: lastRun ?? null,
     cursor,
     nextRunAt: next ? new Date(next).toISOString() : null,
     intervalHours: intervalMs() / 3_600_000,
     schedulerEnabled: env.schedulerEnabled,
-    model: env.xaiModel,
   }
 }

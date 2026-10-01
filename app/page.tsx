@@ -43,7 +43,7 @@ export default async function Page() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <PollControls initial={status} />
+          <PollControls status={status} />
           <ThemeToggle />
         </div>
       </header>
@@ -66,8 +66,7 @@ export default async function Page() {
                   hour: "numeric",
                   minute: "2-digit",
                 })
-              : "not set"}{" "}
-            · {status.model}
+              : "not set"}
           </p>
         </div>
         <TabsContent value="signals">
@@ -82,10 +81,12 @@ export default async function Page() {
       </Tabs>
 
       <footer className="text-xs text-muted-foreground">
-        Screens Form 4 filings from the SEC EDGAR latest-filings feed. Drops
-        trades under Rule 10b5-1 plans and all sales, then asks Grok whether the
-        insider&apos;s history makes the purchase routine. Not investment
-        advice.
+        Screens Form 4 filings from the SEC EDGAR latest-filings feed. Keeps
+        open-market purchases outside Rule 10b5-1 plans, in NYSE or Nasdaq
+        stocks worth at least $100M, by insiders whose last three years of
+        trading show no routine calendar month, and only while the price is
+        within 2% of the insider&apos;s; each one is bought with an Alpaca paper
+        market order and posted once it fills. Not investment advice.
       </footer>
     </div>
   )

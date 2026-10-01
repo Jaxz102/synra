@@ -51,7 +51,6 @@ export interface Form4 {
   schemaVersion: string | null
   periodOfReport: string | null
   aff10b5One: boolean
-  mentions10b5InFootnotes: boolean
   issuer: { cik: string; name: string; ticker: string | null }
   owners: Form4Owner[]
   transactions: Form4Transaction[]
@@ -232,7 +231,6 @@ export function parseForm4Xml(
     const body = text(f as AnyNode)
     if (id && body) footnotes[id] = body
   }
-  const allFootnoteText = Object.values(footnotes).join(" ")
   const sig = doc.ownerSignature
   const sigNode = (Array.isArray(sig) ? sig[0] : sig) as
     Record<string, unknown> | undefined
@@ -242,7 +240,6 @@ export function parseForm4Xml(
     schemaVersion: text(doc.schemaVersion as AnyNode),
     periodOfReport: text(doc.periodOfReport as AnyNode),
     aff10b5One: bool(doc.aff10b5One as AnyNode),
-    mentions10b5InFootnotes: /10b5-?1/i.test(allFootnoteText),
     issuer: {
       cik: text(issuer.issuerCik as AnyNode) ?? "",
       name: text(issuer.issuerName as AnyNode) ?? "",
@@ -305,6 +302,51 @@ export function openMarketPurchases(form: Form4): Form4Transaction[] {
       t.acquiredDisposed === "A" &&
       (t.shares ?? 0) > 0
   )
+}
+
+/**
+ * Whether a Table I security title is a stock. Preferred stock, notes, warrants, rights and units are not;
+ * "Common Units" of a partnership count as common equity.
+ */
+export function isCommonStock(securityTitle: string): boolean {
+  if (/common|ordinary/i.test(securityTitle)) return true
+  return !/\b(preferred|pfd|notes?|debentures?|bonds?|warrants?|rights?|units?)\b/i.test(
+    securityTitle
+  )
+}
+
+export interface TradeSummary {
+  date: string | null
+  shares: number
+  avgPrice: number | null
+  value: number | null
+  sharesAfter: number | null
+  transactions: Form4Transaction[]
+}
+
+/** Aggregates purchase transactions into one trade: total shares, share-weighted average price, latest date. */
+export function summarizeTrade(
+  form: Form4,
+  buys: Form4Transaction[] = openMarketPurchases(form)
+): TradeSummary {
+  const shares = buys.reduce((s, t) => s + (t.shares ?? 0), 0)
+  const priced = buys.filter((t) => t.pricePerShare !== null)
+  const value = priced.reduce(
+    (s, t) => s + (t.shares ?? 0) * (t.pricePerShare ?? 0),
+    0
+  )
+  const pricedShares = priced.reduce((s, t) => s + (t.shares ?? 0), 0)
+  const last = [...buys]
+    .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""))
+    .at(-1)
+  return {
+    date: last?.date ?? form.periodOfReport,
+    shares,
+    avgPrice: pricedShares > 0 ? value / pricedShares : null,
+    value: pricedShares > 0 ? value : null,
+    sharesAfter: last?.sharesAfter ?? null,
+    transactions: buys,
+  }
 }
 
 export function describeRole(o: Form4Owner | undefined): string {

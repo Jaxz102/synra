@@ -37,10 +37,16 @@ export function RunsTable({ runs }: { runs: Run[] }) {
             <TableHead className="text-right">Feed entries</TableHead>
             <TableHead className="text-right">New</TableHead>
             <TableHead className="text-right">Posted</TableHead>
-            <TableHead className="text-right">Routine</TableHead>
-            <TableHead className="text-right">10b5-1</TableHead>
             <TableHead className="text-right">Sales</TableHead>
             <TableHead className="text-right">Other</TableHead>
+            <TableHead className="text-right">10b5-1</TableHead>
+            <TableHead className="text-right">Listing</TableHead>
+            <TableHead className="text-right">Routine</TableHead>
+            <TableHead className="text-right">History</TableHead>
+            <TableHead className="text-right">Mkt cap</TableHead>
+            <TableHead className="text-right">Price</TableHead>
+            <TableHead className="text-right">Not filled</TableHead>
+            <TableHead className="text-right">Deferred</TableHead>
             <TableHead className="text-right">Errors</TableHead>
             <TableHead>Cursor after</TableHead>
           </TableRow>
@@ -76,18 +82,22 @@ export function RunsTable({ runs }: { runs: Run[] }) {
               <TableCell className="text-right font-medium tabular-nums">
                 {fmtInt(r.posted)}
               </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {fmtInt(r.skippedRoutine)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {fmtInt(r.skipped10b51)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {fmtInt(r.skippedSell)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {fmtInt(r.skippedNotPurchase)}
-              </TableCell>
+              {[
+                r.skippedSell,
+                r.skippedNotPurchase,
+                r.skipped10b51,
+                r.skippedListing,
+                r.skippedRoutine,
+                r.skippedHistory,
+                r.skippedMarketCap,
+                r.skippedPrice,
+                r.skippedOrder,
+                r.deferred,
+              ].map((n, i) => (
+                <TableCell key={i} className="text-right tabular-nums">
+                  {fmtInt(n)}
+                </TableCell>
+              ))}
               <TableCell className="text-right tabular-nums">
                 {fmtInt(r.errors)}
               </TableCell>

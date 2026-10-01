@@ -29,24 +29,24 @@ export const env = {
   secUserAgent:
     process.env.SEC_USER_AGENT?.trim() ||
     "Synra InsiderMonitor admin@example.com",
-  xaiApiKey: process.env.XAI_API_KEY?.trim() ?? "",
-  xaiModel: process.env.XAI_MODEL?.trim() || "grok-4.6",
   pollIntervalHours: num(process.env.POLL_INTERVAL_HOURS, 6),
   initialLookbackHours: num(process.env.INITIAL_LOOKBACK_HOURS, 12),
   maxFeedPages: num(process.env.MAX_FEED_PAGES, 20),
-  historyMonths: num(process.env.HISTORY_MONTHS, 24),
-  historyMaxFilings: num(process.env.HISTORY_MAX_FILINGS, 20),
   schedulerEnabled: process.env.SYNRA_SCHEDULER !== "0",
   /** Shared secret an external scheduler must send as `Authorization: Bearer …` to /api/cron/poll. */
   cronSecret: process.env.CRON_SECRET?.trim() ?? "",
   /** Postgres connection string. Required: all state lives there. See `databaseUrl()`. */
   databaseUrl: databaseUrl(),
-  /** Alpaca paper-trading credentials. Orders are skipped (and logged) when unset. */
+  /** Alpaca paper-trading credentials. Required: listings, quotes and orders all come from Alpaca. */
   alpacaKey: process.env.ALPACA_KEY?.trim() ?? "",
   alpacaSecret: process.env.ALPACA_SECRET?.trim() ?? "",
   alpacaBaseUrl: (
     process.env.ALPACA_BASE_URL?.trim() || "https://paper-api.alpaca.markets"
   ).replace(/\/+$/, ""),
+  /** Market data feed for current prices: "iex" (free plan, real-time) or "sip" (paid plan). */
+  alpacaDataFeed: process.env.ALPACA_DATA_FEED?.trim() || "iex",
   /** Dollar amount bought on Alpaca for every posted trade. */
   alpacaOrderNotional: num(process.env.ALPACA_ORDER_NOTIONAL, 150),
+  /** Finnhub key for market capitalization (free tier: 60 requests/minute). Required. */
+  finnhubApiKey: process.env.FINNHUB_API_KEY?.trim() ?? "",
 }

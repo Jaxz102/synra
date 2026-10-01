@@ -156,14 +156,11 @@ for (const c of chunks(
         insiderCik: r.insider_cik as string,
         issuerCik: str(r.issuer_cik),
         createdAt: new Date(r.created_at as string),
-        model: r.model as string,
+        classifier: r.model as string,
         classification: r.classification as string,
-        confidence: num(r.confidence),
         reasoning: str(r.reasoning),
         patternSummary: str(r.pattern_summary),
         history: json<TradeHistory>(str(r.history_json)),
-        promptTokens: num(r.prompt_tokens),
-        completionTokens: num(r.completion_tokens),
       }))
     )
     .onConflictDoNothing()
@@ -219,11 +216,10 @@ for (const r of tradeRows) {
     transactions: JSON.parse(
       r.transactions_json as string
     ) as TradeTransaction[],
-    aiClassification: str(r.ai_classification),
-    aiConfidence: num(r.ai_confidence),
-    aiReasoning: str(r.ai_reasoning),
-    aiPattern: str(r.ai_pattern),
-    aiModel: str(r.ai_model),
+    classification: str(r.ai_classification),
+    reasoning: str(r.ai_reasoning),
+    patternSummary: str(r.ai_pattern),
+    classifier: str(r.ai_model),
     history: json<TradeHistory>(str(r.history_json)),
     filingUrl: str(r.filing_url),
   }

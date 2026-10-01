@@ -58,17 +58,3 @@ export async function startScheduler(): Promise<void> {
   )
   schedule(delay)
 }
-
-/** Kicks off a run right now (if none is active) and re-arms the schedule from this point. */
-export function triggerNow(trigger: "manual" | "cli" = "manual"): {
-  started: boolean
-  reason?: string
-} {
-  if (currentRun())
-    return { started: false, reason: "A poll run is already in progress" }
-  runPoll(trigger).catch((err) =>
-    console.error("[synra] manual poll failed:", (err as Error).message)
-  )
-  if (state().started) schedule(intervalMs())
-  return { started: true }
-}

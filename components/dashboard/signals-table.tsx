@@ -13,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { fmtDate, fmtInt, fmtMoney, fmtPct, fmtRelative } from "@/lib/format"
+import { fmtDate, fmtInt, fmtMoney, fmtRelative } from "@/lib/format"
 import type { Trade } from "@/lib/queries"
 
 export function SignalsTable({
@@ -31,8 +31,8 @@ export function SignalsTable({
         <p className="font-heading text-lg font-semibold">No signals yet</p>
         <p className="max-w-md text-sm text-muted-foreground">
           Synra has screened {fmtInt(scanned)} Form 4 filings. Unplanned
-          open-market purchases that Grok judges to be non-routine will appear
-          here after the next poll.
+          open-market purchases by opportunistic insiders in NYSE and Nasdaq
+          stocks will appear here after the next poll.
         </p>
       </div>
     )
@@ -99,10 +99,9 @@ export function SignalsTable({
                     variant="outline"
                     className="border-transparent bg-primary/15 text-primary dark:bg-primary/25 dark:text-primary-foreground"
                   >
-                    {t.aiClassification === "opportunistic"
+                    {t.classification === "opportunistic"
                       ? "Opportunistic"
-                      : t.aiClassification}{" "}
-                    · {fmtPct(t.aiConfidence)}
+                      : (t.classification ?? "—")}
                   </Badge>
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-muted-foreground">

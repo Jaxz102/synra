@@ -20,14 +20,62 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { fmtDate, fmtInt, fmtMoney, fmtPct } from "@/lib/format"
+import { fmtDate, fmtInt, fmtMoney, fmtMoneyCompact } from "@/lib/format"
+import type { InsiderCriteria } from "@/lib/pipeline/insider-criteria"
 import type { Trade } from "@/lib/queries"
+import { cn } from "@/lib/utils"
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="text-sm font-medium tabular-nums">{value}</span>
+    </div>
+  )
+}
+
+/** Fractional fills come back like "19.230769"; whole-share fills stay integers. */
+const fmtShares = (n: number) =>
+  n.toLocaleString("en-US", { maximumFractionDigits: 4 })
+
+const MONTH_INITIALS = "JFMAMJJASOND".split("")
+
+/** Year × month grid of the insider's open-market trades: the evidence behind the routine/opportunistic rule. */
+function MonthGrid({ criteria }: { criteria: InsiderCriteria }) {
+  return (
+    <div className="flex flex-col gap-1">
+      {criteria.years.map((y) => {
+        const months = criteria.monthsByYear[y]
+        return (
+          <div key={y} className="flex items-center gap-1">
+            <span className="w-10 text-xs text-muted-foreground tabular-nums">
+              {y}
+            </span>
+            {MONTH_INITIALS.map((m, i) => {
+              const traded = months?.includes(i + 1)
+              const routine = criteria.routineMonths.includes(i + 1)
+              return (
+                <span
+                  key={i}
+                  className={cn(
+                    "flex size-6 items-center justify-center rounded text-[10px]",
+                    traded
+                      ? routine
+                        ? "bg-secondary-foreground text-secondary"
+                        : "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground"
+                  )}
+                >
+                  {m}
+                </span>
+              )
+            })}
+            {months === undefined && (
+              <span className="text-xs text-muted-foreground">not checked</span>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -40,8 +88,10 @@ export function TradeDialog({
   onClose: () => void
 }) {
   const t = trade
-  const stats = t?.history?.stats
-  const prior = t?.history?.filings ?? []
+  const criteria = t?.history?.criteria
+  const prior = t?.history?.trades ?? []
+  const premium =
+    t?.quotePrice && t.pricePerShare ? t.quotePrice / t.pricePerShare - 1 : null
   return (
     <Dialog open={!!t} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-3xl">
@@ -66,21 +116,23 @@ export function TradeDialog({
               <Fact label="Avg price" value={fmtMoney(t.pricePerShare, 2)} />
               <Fact label="Value" value={fmtMoney(t.totalValue)} />
               <Fact label="Held after" value={fmtInt(t.sharesAfter)} />
+              <Fact label="Market cap" value={fmtMoneyCompact(t.marketCap)} />
               <Fact
-                label="Prior filings"
-                value={fmtInt(stats?.priorFilings ?? 0)}
-              />
-              <Fact
-                label="Prior open-market buys"
-                value={fmtInt(stats?.priorOpenMarketBuys ?? 0)}
-              />
-              <Fact
-                label="Median days between buys"
+                label="Price when screened"
                 value={
-                  stats?.medianDaysBetweenBuys === null ||
-                  stats?.medianDaysBetweenBuys === undefined
-                    ? "—"
-                    : fmtInt(stats.medianDaysBetweenBuys)
+                  premium === null
+                    ? fmtMoney(t.quotePrice, 2)
+                    : `${fmtMoney(t.quotePrice, 2)} (${premium >= 0 ? "+" : ""}${(premium * 100).toFixed(1)}%)`
+                }
+              />
+              <Fact
+                label="Alpaca order"
+                value={
+                  t.alpacaFilledQty
+                    ? `Bought ${fmtShares(t.alpacaFilledQty)} @ ${fmtMoney(t.alpacaFilledAvgPrice, 2)}`
+                    : t.alpacaOrderId
+                      ? `${t.alpacaOrderLimitPrice ? `Limit ${fmtMoney(t.alpacaOrderLimitPrice, 2)}` : "Market"} · ${t.alpacaOrderStatus}`
+                      : (t.alpacaOrderError ?? "—")
                 }
               />
             </div>
@@ -93,17 +145,21 @@ export function TradeDialog({
                   variant="outline"
                   className="border-transparent bg-primary/15 text-primary dark:bg-primary/25 dark:text-primary-foreground"
                 >
-                  Opportunistic · {fmtPct(t.aiConfidence)}
+                  Opportunistic
                 </Badge>
                 <span className="text-xs text-muted-foreground">
-                  {t.aiModel}
+                  {t.classifier}
                 </span>
               </div>
-              {t.aiPattern && (
-                <p className="text-sm font-medium">{t.aiPattern}</p>
+              {t.patternSummary && (
+                <p className="text-sm font-medium">{t.patternSummary}</p>
               )}
-              {t.aiReasoning && (
-                <p className="text-sm text-muted-foreground">{t.aiReasoning}</p>
+              {criteria ? (
+                <MonthGrid criteria={criteria} />
+              ) : (
+                t.reasoning && (
+                  <p className="text-sm text-muted-foreground">{t.reasoning}</p>
+                )
               )}
             </div>
 
@@ -134,7 +190,7 @@ export function TradeDialog({
                         <TableCell>
                           <div>{x.securityTitle}</div>
                           {x.footnotes.length > 0 && (
-                            <div className="max-w-md text-xs text-muted-foreground">
+                            <div className="max-w-md text-xs whitespace-normal text-muted-foreground">
                               {x.footnotes.join(" ")}
                             </div>
                           )}
@@ -163,7 +219,10 @@ export function TradeDialog({
             {prior.length > 0 && (
               <div className="flex flex-col gap-2">
                 <h4 className="text-sm font-semibold">
-                  Insider&apos;s prior Form 4 history reviewed by Grok
+                  Insider&apos;s open-market trades
+                  {criteria
+                    ? `, ${criteria.years[0]}–${criteria.years.at(-1)}`
+                    : ""}
                 </h4>
                 <div className="overflow-x-auto rounded-lg border">
                   <Table>
@@ -171,43 +230,33 @@ export function TradeDialog({
                       <TableRow>
                         <TableHead>Date</TableHead>
                         <TableHead>Issuer</TableHead>
-                        <TableHead>Code</TableHead>
+                        <TableHead>Type</TableHead>
                         <TableHead className="text-right">Shares</TableHead>
                         <TableHead className="text-right">Price</TableHead>
                         <TableHead>Flags</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {prior.flatMap((f) =>
-                        (f.transactions.length ? f.transactions : [null]).map(
-                          (x, i) => (
-                            <TableRow key={`${f.accession}-${i}`}>
-                              <TableCell className="whitespace-nowrap tabular-nums">
-                                {fmtDate(x?.date ?? f.reportDate)}
-                              </TableCell>
-                              <TableCell>{f.ticker ?? f.issuer}</TableCell>
-                              <TableCell className="whitespace-nowrap">
-                                {x
-                                  ? `${x.code ?? "?"} / ${x.acquiredDisposed ?? ""}${x.derivative ? " (deriv)" : ""}`
-                                  : "holdings only"}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {fmtInt(x?.shares)}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {fmtMoney(x?.price, 2)}
-                              </TableCell>
-                              <TableCell className="text-xs text-muted-foreground">
-                                {f.aff10b5One
-                                  ? "10b5-1"
-                                  : f.mentions10b5InFootnotes
-                                    ? "10b5-1 (footnote)"
-                                    : ""}
-                              </TableCell>
-                            </TableRow>
-                          )
-                        )
-                      )}
+                      {prior.map((x, i) => (
+                        <TableRow key={`${x.accession}-${i}`}>
+                          <TableCell className="whitespace-nowrap tabular-nums">
+                            {fmtDate(x.date)}
+                          </TableCell>
+                          <TableCell>{x.ticker ?? x.issuer}</TableCell>
+                          <TableCell>
+                            {x.code === "P" ? "Buy" : "Sale"}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {fmtInt(x.shares)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {fmtMoney(x.price, 2)}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {x.aff10b5One ? "10b5-1" : ""}
+                          </TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 </div>

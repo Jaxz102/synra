@@ -11,7 +11,10 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core"
 
-import type { HistoryRow, HistoryStats } from "@/lib/ai/classify"
+import type {
+  HistoryTrade,
+  InsiderCriteria,
+} from "@/lib/pipeline/insider-criteria"
 import type { Form4 } from "@/lib/sec/form4"
 import type { IssuerProfile } from "@/lib/sec/issuer"
 
@@ -58,12 +61,16 @@ export interface TradeTransaction {
   footnotes: string[]
 }
 
+/** Evidence behind the insider criteria. Trades classified by Grok before the rule replaced it hold `{ stats, filings }`. */
 export interface TradeHistory {
-  stats: HistoryStats
-  filings: HistoryRow[]
+  criteria?: InsiderCriteria
+  trades?: HistoryTrade[]
 }
 
-/** A posted signal: an unplanned open-market purchase that Grok judged opportunistic. */
+/**
+ * A posted signal: an open-market purchase that passed every screening step in lib/pipeline/poll.ts and whose
+ * Alpaca market buy filled. Rows posted before market orders replaced limit orders may hold unfilled orders.
+ */
 export const trades = pgTable(
   "trades",
   {
@@ -84,21 +91,28 @@ export const trades = pgTable(
     postedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     sharesAfter: doublePrecision(),
     transactions: jsonb().$type<TradeTransaction[]>().notNull(),
-    aiClassification: text(),
-    aiConfidence: doublePrecision(),
-    aiReasoning: text(),
-    aiPattern: text(),
-    aiModel: text(),
+    // Insider criteria verdict (lib/pipeline/insider-criteria.ts); `classifier` names the rule, or the Grok model on older rows.
+    classification: text(),
+    reasoning: text(),
+    patternSummary: text(),
+    classifier: text(),
     history: jsonb().$type<TradeHistory>(),
     filingUrl: text(),
-    // Alpaca paper order placed when the trade was posted (see lib/alpaca/client.ts).
+    // Screening inputs: Finnhub market cap and the Alpaca price step 6 compared with the filing.
+    marketCap: doublePrecision(),
+    quotePrice: numeric({ precision: 18, scale: 4, mode: "number" }),
+    // Alpaca paper market buy (see lib/alpaca/client.ts). The limit price and error are only set on older rows.
     alpacaOrderId: text(),
     alpacaClientOrderId: text(),
     alpacaOrderStatus: text(),
     alpacaOrderNotional: numeric({ precision: 18, scale: 2, mode: "number" }),
     alpacaOrderQty: doublePrecision(),
+    alpacaOrderLimitPrice: numeric({ precision: 18, scale: 4, mode: "number" }),
     alpacaOrderError: text(),
     alpacaOrderedAt: timestamp({ withTimezone: true }),
+    alpacaFilledQty: doublePrecision(),
+    alpacaFilledAvgPrice: numeric({ precision: 18, scale: 4, mode: "number" }),
+    alpacaFilledAt: timestamp({ withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -129,7 +143,14 @@ export const pollRuns = pgTable("poll_runs", {
   skipped10b51: integer("skipped_10b5_1").notNull().default(0),
   skippedSell: integer().notNull().default(0),
   skippedNotPurchase: integer().notNull().default(0),
+  skippedListing: integer().notNull().default(0),
   skippedRoutine: integer().notNull().default(0),
+  skippedHistory: integer().notNull().default(0),
+  skippedMarketCap: integer().notNull().default(0),
+  skippedPrice: integer().notNull().default(0),
+  skippedOrder: integer().notNull().default(0),
+  /** Filings that passed steps 1-5 while the market was closed; left queued for a later run. */
+  deferred: integer().notNull().default(0),
   posted: integer().notNull().default(0),
   errors: integer().notNull().default(0),
   error: text(),
@@ -138,10 +159,15 @@ export const pollRuns = pgTable("poll_runs", {
 export type FilingStatus =
   | "queued"
   | "processing"
-  | "skipped_10b5_1"
   | "skipped_sell"
   | "skipped_not_purchase"
+  | "skipped_10b5_1"
+  | "skipped_listing"
   | "skipped_routine"
+  | "skipped_history"
+  | "skipped_market_cap"
+  | "skipped_price"
+  | "skipped_order"
   | "posted"
   | "error"
 
@@ -175,7 +201,7 @@ export const filings = pgTable(
   ]
 )
 
-/** One row per Grok classification, including the routine ones that never became a trade. */
+/** One row per insider-criteria evaluation (step 4), including the ones that never became a trade. */
 export const insiderAnalyses = pgTable(
   "insider_analyses",
   {
@@ -184,14 +210,11 @@ export const insiderAnalyses = pgTable(
     insiderCik: text().notNull(),
     issuerCik: text(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
-    model: text().notNull(),
+    classifier: text().notNull(),
     classification: text().notNull(),
-    confidence: doublePrecision(),
     reasoning: text(),
     patternSummary: text(),
     history: jsonb().$type<TradeHistory>(),
-    promptTokens: integer(),
-    completionTokens: integer(),
   },
   (t) => [index("insider_analyses_accession_idx").on(t.accession)]
 )
