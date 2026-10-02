@@ -1,4 +1,4 @@
-import { Radar } from "lucide-react"
+import Image from "next/image"
 
 import { PipelineTable } from "@/components/dashboard/pipeline-table"
 import { PollControls } from "@/components/dashboard/poll-controls"
@@ -30,9 +30,14 @@ export default async function Page() {
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Radar className="size-5" />
-          </div>
+          <Image
+            src="/logo.png"
+            alt="Synra logo"
+            width={36}
+            height={36}
+            loading="eager"
+            className="size-9"
+          />
           <div>
             <h1 className="font-heading text-xl font-semibold tracking-tight">
               Synra

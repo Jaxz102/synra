@@ -40,39 +40,46 @@ export interface InsiderFilingRef {
 }
 
 /**
- * The insider's Form 4s that can hold transactions dated within [from, to] (YYYY-MM-DD). A filing's transactions fall
- * between its period of report and its filing date, so filings overlapping the window are kept. `recent` holds the
- * latest ~1000 filings; heavier filers spill into older pages, which are fetched when they reach into the window.
+ * The insider's Form 4s that can hold transactions dated in each of `months` ("YYYY-MM"), keyed by month. A filing's
+ * transactions fall between its period of report and its filing date, so filings overlapping a month are kept.
+ * `recent` holds the latest ~1000 filings; heavier filers spill into older pages, which are fetched when they reach
+ * into a month.
  */
 export async function listInsiderForm4s(
   ownerCik: string,
-  window: { from: string; to: string }
-): Promise<InsiderFilingRef[]> {
+  months: string[]
+): Promise<Record<string, InsiderFilingRef[]>> {
   const subs = await secJson<Submissions>(
     `https://data.sec.gov/submissions/CIK${cikPadded(ownerCik)}.json`
   )
+  // Dates compare as strings, so day 31 closes every month.
+  const windows = months.map((m) => ({ m, from: `${m}-01`, to: `${m}-31` }))
+  const earliest = windows.map((w) => w.from).sort()[0]
   const pages = [subs.filings.recent]
   for (const f of subs.filings.files ?? [])
-    if (f.filingTo >= window.from)
+    if (f.filingTo >= earliest)
       pages.push(
         await secJson<FilingColumns>(
           `https://data.sec.gov/submissions/${f.name}`
         )
       )
-  const out: InsiderFilingRef[] = []
+  const out = Object.fromEntries(
+    months.map((m) => [m, [] as InsiderFilingRef[]])
+  )
   for (const r of pages) {
     for (let i = 0; i < r.accessionNumber.length; i++) {
       if (r.form[i] !== "4") continue
       const reportDate = r.reportDate[i] || null
-      if ((reportDate ?? r.filingDate[i]) > window.to) continue
-      if (r.filingDate[i] < window.from) continue
-      out.push({
-        accession: r.accessionNumber[i],
-        filingDate: r.filingDate[i],
-        reportDate,
-        form: r.form[i],
-        primaryDocument: r.primaryDocument[i],
-      })
+      const filingDate = r.filingDate[i]
+      for (const w of windows)
+        if ((reportDate ?? filingDate) <= w.to && filingDate >= w.from)
+          out[w.m].push({
+            accession: r.accessionNumber[i],
+            filingDate,
+            reportDate,
+            form: r.form[i],
+            primaryDocument: r.primaryDocument[i],
+          })
     }
   }
   return out
@@ -101,10 +108,10 @@ export function cacheForm4(form: Form4): Promise<void> {
 }
 
 /**
- * Fetches and parses one historical Form 4, or returns null when the document is missing or not an ownership XML.
+ * Fetches and parses one historical Form 4 (cached in Postgres), or returns null when the document is missing or not an ownership XML.
  * Network and throttling errors propagate: a silently dropped filing could flip the insider criteria.
  */
-async function fetchHistoricalForm4(
+export async function fetchHistoricalForm4(
   ownerCik: string,
   ref: InsiderFilingRef
 ): Promise<Form4 | null> {
@@ -139,19 +146,4 @@ async function fetchHistoricalForm4(
   }
   await cachePut(form)
   return form
-}
-
-/** Parsed Form 4s for the given filing refs (cached in Postgres), oldest first. */
-export async function loadInsiderForm4s(
-  ownerCik: string,
-  refs: InsiderFilingRef[]
-): Promise<Form4[]> {
-  const forms: Form4[] = []
-  for (const ref of refs) {
-    const form = await fetchHistoricalForm4(ownerCik, ref)
-    if (form) forms.push(form)
-  }
-  return forms.sort((a, b) =>
-    (a.periodOfReport ?? "").localeCompare(b.periodOfReport ?? "")
-  )
 }

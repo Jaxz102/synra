@@ -1,31 +1,20 @@
 import type { Form4 } from "@/lib/sec/form4"
-import { listInsiderForm4s, loadInsiderForm4s } from "@/lib/sec/insider"
+import {
+  fetchHistoricalForm4,
+  type InsiderFilingRef,
+  listInsiderForm4s,
+} from "@/lib/sec/insider"
 
 /*
- * Insider criteria from Cohen, Malloy & Pomorski, "Decoding Inside Information" (2012), as specified in the
- * "SEC Filtering Pipeline" Linear doc:
- * - eligible: at least one open-market trade (Form 4 code P or S, non-derivative) in each of the three preceding
- *   calendar years; option exercises and other codes don't count,
- * - routine: traded in the same calendar month in each of those three years,
- * - opportunistic: eligible and not routine.
- * Trades in every issuer count, since the rule profiles the insider rather than the stock.
+ * Step 4 insider criteria: an insider who made an open-market trade (Form 4 code P or S, non-derivative) in the
+ * filing's trade month in each of the three preceding years is routine; anyone else is opportunistic. For a trade in
+ * October 2026 that means October 2025, October 2024 and October 2023. Trades in every issuer count, since the rule
+ * profiles the insider rather than the stock. The label is stored on the insider for good (lib/pipeline/insiders.ts).
  */
 
-export const CLASSIFIER = "rule:same-month-3y"
+export const CLASSIFIER = "rule:trade-month-3y"
 
-export type InsiderVerdict = "routine" | "opportunistic" | "ineligible"
-
-export interface InsiderCriteria {
-  verdict: InsiderVerdict
-  /** The three preceding calendar years, oldest first. */
-  years: number[]
-  /** Months (1-12) with an open-market trade, per year checked. Years that were never loaded are absent. */
-  monthsByYear: Record<string, number[]>
-  /** Months traded in every one of the three years; non-empty only for routine insiders. */
-  routineMonths: number[]
-  summary: string
-  detail: string
-}
+export type InsiderVerdict = "routine" | "opportunistic"
 
 /** One open-market trade from the insider's history, shown as evidence on the dashboard. */
 export interface HistoryTrade {
@@ -39,132 +28,87 @@ export interface HistoryTrade {
   aff10b5One: boolean
 }
 
+export interface InsiderEvaluation {
+  verdict: InsiderVerdict
+  summary: string
+  /** The open-market trades the lookup found in the months it checked. */
+  trades: HistoryTrade[]
+}
+
 const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ")
-const monthName = (m: number) => MONTHS[m - 1]
-const yearOf = (date: string) => Number(date.slice(0, 4))
-const monthOf = (date: string) => Number(date.slice(5, 7))
 
-export function precedingYears(tradeDate: string | null): number[] {
-  const y = tradeDate ? yearOf(tradeDate) : new Date().getUTCFullYear()
-  return [y - 3, y - 2, y - 1]
+/** Non-derivative P/S transactions in the form dated within `ym` ("YYYY-MM"). */
+function openMarketTradesIn(form: Form4, ym: string): HistoryTrade[] {
+  return form.transactions
+    .filter((t) => !t.derivative && (t.code === "P" || t.code === "S"))
+    .map((t) => ({
+      accession: form.accession,
+      date: t.date ?? form.periodOfReport ?? "",
+      issuer: form.issuer.name,
+      ticker: form.issuer.ticker,
+      code: t.code as "P" | "S",
+      shares: t.shares,
+      price: t.pricePerShare,
+      aff10b5One: form.aff10b5One,
+    }))
+    .filter((t) => t.date.startsWith(ym))
 }
 
-/** Non-derivative P/S transactions dated within `years`. */
-export function openMarketTrades(
-  forms: Form4[],
-  years: number[]
-): HistoryTrade[] {
-  return forms
-    .flatMap((f) =>
-      f.transactions
-        .filter((t) => !t.derivative && (t.code === "P" || t.code === "S"))
-        .map((t) => ({
-          accession: f.accession,
-          date: t.date ?? f.periodOfReport ?? "",
-          issuer: f.issuer.name,
-          ticker: f.issuer.ticker,
-          code: t.code as "P" | "S",
-          shares: t.shares,
-          price: t.pricePerShare,
-          aff10b5One: f.aff10b5One,
-        }))
-    )
-    .filter(
-      (t) => /^\d{4}-\d{2}/.test(t.date) && years.includes(yearOf(t.date))
-    )
-    .sort((a, b) => a.date.localeCompare(b.date))
-}
-
-function formatMonths(monthsByYear: Record<string, number[]>, years: number[]) {
-  return years
-    .map(
-      (y) =>
-        `${y}: ${monthsByYear[y] === undefined ? "not checked" : monthsByYear[y].map(monthName).join(", ") || "none"}`
-    )
-    .join(" · ")
-}
-
-export function classifyInsider(
-  trades: HistoryTrade[],
-  years: number[]
-): InsiderCriteria {
-  const monthsByYear: Record<string, number[]> = {}
-  for (const y of years)
-    monthsByYear[y] = [
-      ...new Set(
-        trades.filter((t) => yearOf(t.date) === y).map((t) => monthOf(t.date))
-      ),
-    ].sort((a, b) => a - b)
-  const detail = formatMonths(monthsByYear, years)
-  const missing = years.filter((y) => monthsByYear[y].length === 0)
-  if (missing.length)
-    return {
-      verdict: "ineligible",
-      years,
-      monthsByYear,
-      routineMonths: [],
-      summary: `No open-market trades in ${missing.join(", ")}; needs at least one in each of ${years[0]}–${years[2]}.`,
-      detail,
-    }
-  const routineMonths = MONTHS.map((_, i) => i + 1).filter((m) =>
-    years.every((y) => monthsByYear[y].includes(m))
-  )
-  if (routineMonths.length)
-    return {
-      verdict: "routine",
-      years,
-      monthsByYear,
-      routineMonths,
-      summary: `Traded in ${routineMonths.map(monthName).join(", ")} in each of ${years[0]}–${years[2]}.`,
-      detail,
-    }
-  return {
-    verdict: "opportunistic",
-    years,
-    monthsByYear,
-    routineMonths,
-    summary: `Traded every year ${years[0]}–${years[2]}, but in no calendar month common to all three.`,
-    detail,
+/** The open-market trades in `ym` from the first of `refs` that has any, downloading one filing at a time. */
+async function firstTradesIn(
+  ownerCik: string,
+  refs: InsiderFilingRef[],
+  ym: string
+): Promise<HistoryTrade[]> {
+  for (const ref of refs) {
+    const form = await fetchHistoricalForm4(ownerCik, ref)
+    const found = form ? openMarketTradesIn(form, ym) : []
+    if (found.length) return found
   }
+  return []
 }
 
 /**
- * Loads the insider's Form 4s for the three calendar years before the trade and applies the criteria. Years with no
- * Form 4 at all are detected from the filing index alone, so ineligible insiders cost one SEC request.
+ * Looks up whether the insider made an open-market trade in the trade's month in each of the three preceding years.
+ * Only Form 4s that can cover those three months are downloaded, and the lookup stops at the first year without a
+ * trade, so most opportunistic insiders cost a single SEC request.
  */
-export async function evaluateInsider(
+export async function lookupInsider(
   ownerCik: string,
-  tradeDate: string | null
-): Promise<{ criteria: InsiderCriteria; trades: HistoryTrade[] }> {
-  const years = precedingYears(tradeDate)
-  const refs = await listInsiderForm4s(ownerCik, {
-    from: `${years[0]}-01-01`,
-    to: `${years[2]}-12-31`,
-  })
-  const unfiled = years.filter(
-    (y) =>
-      !refs.some(
-        (r) =>
-          yearOf(r.reportDate ?? r.filingDate) <= y && yearOf(r.filingDate) >= y
-      )
+  tradeDate: string
+): Promise<InsiderEvaluation> {
+  const m = /^(\d{4})-(\d{2})/.exec(tradeDate)
+  if (!m) throw new Error(`Unparseable trade date "${tradeDate}"`)
+  const [year, mm] = [Number(m[1]), m[2]]
+  const years = [year - 3, year - 2, year - 1]
+  const refs = await listInsiderForm4s(
+    ownerCik,
+    years.map((y) => `${y}-${mm}`)
   )
-  if (unfiled.length) {
-    const monthsByYear = Object.fromEntries(unfiled.map((y) => [y, []]))
-    return {
-      criteria: {
-        verdict: "ineligible",
-        years,
-        monthsByYear,
-        routineMonths: [],
-        summary: `No Form 4 filings covering ${unfiled.join(", ")}; needs an open-market trade in each of ${years[0]}–${years[2]}.`,
-        detail: formatMonths(monthsByYear, years),
-      },
-      trades: [],
+  // Years with the fewest candidate filings first: a year with none settles the verdict without any download.
+  const order = [...years].sort(
+    (a, b) => refs[`${a}-${mm}`].length - refs[`${b}-${mm}`].length
+  )
+
+  const trades: HistoryTrade[] = []
+  let missing: number | undefined
+  for (const y of order) {
+    const ym = `${y}-${mm}`
+    const found = await firstTradesIn(ownerCik, refs[ym], ym)
+    if (!found.length) {
+      missing = y
+      break
     }
+    trades.push(...found)
   }
-  const trades = openMarketTrades(
-    await loadInsiderForm4s(ownerCik, refs),
-    years
-  )
-  return { criteria: classifyInsider(trades, years), trades }
+  const month = MONTHS[Number(mm) - 1]
+  const span = `${month} of each of ${years[0]}–${years[2]}`
+  return {
+    verdict: missing === undefined ? "routine" : "opportunistic",
+    summary:
+      missing === undefined
+        ? `Traded in ${span}.`
+        : `No open-market trade in ${month} ${missing}; routine needs one in ${span}.`,
+    trades: trades.sort((a, b) => a.date.localeCompare(b.date)),
+  }
 }

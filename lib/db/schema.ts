@@ -13,7 +13,8 @@ import {
 
 import type {
   HistoryTrade,
-  InsiderCriteria,
+  InsiderEvaluation,
+  InsiderVerdict,
 } from "@/lib/pipeline/insider-criteria"
 import type { Form4 } from "@/lib/sec/form4"
 import type { IssuerProfile } from "@/lib/sec/issuer"
@@ -47,6 +48,11 @@ export const insiders = pgTable("insiders", {
   title: text(),
   relationship: text(),
   company: text(),
+  // Step 4 label (lib/pipeline/insiders.ts): set once by the first lookup, then reused for all the insider's filings.
+  // `traderType` repeats `traderEvaluation.verdict` as a plain column for SQL; both are written together.
+  traderType: text().$type<InsiderVerdict>(),
+  traderEvaluation: jsonb().$type<InsiderEvaluation>(),
+  traderClassifiedAt: timestamp({ withTimezone: true }),
   ...timestamps,
 })
 
@@ -61,9 +67,11 @@ export interface TradeTransaction {
   footnotes: string[]
 }
 
-/** Evidence behind the insider criteria. Trades classified by Grok before the rule replaced it hold `{ stats, filings }`. */
+/**
+ * Evidence behind the insider label. Older rows also hold the earlier rule's month grid (`criteria`) or, from before
+ * the rule replaced Grok, `{ stats, filings }`; nothing reads those any more.
+ */
 export interface TradeHistory {
-  criteria?: InsiderCriteria
   trades?: HistoryTrade[]
 }
 
@@ -145,6 +153,7 @@ export const pollRuns = pgTable("poll_runs", {
   skippedNotPurchase: integer().notNull().default(0),
   skippedListing: integer().notNull().default(0),
   skippedRoutine: integer().notNull().default(0),
+  /** Older runs only: the any-month rule skipped insiders without a trade in each of the three years. */
   skippedHistory: integer().notNull().default(0),
   skippedMarketCap: integer().notNull().default(0),
   skippedPrice: integer().notNull().default(0),
@@ -164,7 +173,7 @@ export type FilingStatus =
   | "skipped_10b5_1"
   | "skipped_listing"
   | "skipped_routine"
-  | "skipped_history"
+  | "skipped_history" // older filings only (any-month rule)
   | "skipped_market_cap"
   | "skipped_price"
   | "skipped_order"

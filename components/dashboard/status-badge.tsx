@@ -29,7 +29,7 @@ const META: Record<FilingStatus, { label: string; className: string }> = {
     className: "bg-secondary text-secondary-foreground",
   },
   skipped_history: {
-    label: "Too little history",
+    label: "Too little history (old rule)",
     className: "bg-secondary text-secondary-foreground",
   },
   skipped_market_cap: {

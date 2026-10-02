@@ -59,9 +59,9 @@ export function StatTiles({ stats }: { stats: Stats }) {
         sub="Pre-scheduled trades"
       />
       <Tile
-        label="Skipped · insider criteria"
-        value={fmtInt(stats.routine + stats.history)}
-        sub={`${fmtInt(stats.routine)} routine · ${fmtInt(stats.history)} too little history`}
+        label="Skipped · routine insiders"
+        value={fmtInt(stats.routine)}
+        sub="Traded in the same month 3 years running"
       />
       <Tile
         label="Skipped · listing, cap, price"

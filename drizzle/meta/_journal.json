@@ -29,6 +29,20 @@
       "when": 1790869002706,
       "tag": "0003_market_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790953549588,
+      "tag": "0004_insider_trader_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790964598967,
+      "tag": "0005_insider_trader_evaluation",
+      "breakpoints": true
     }
   ]
 }

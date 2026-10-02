@@ -21,9 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { fmtDate, fmtInt, fmtMoney, fmtMoneyCompact } from "@/lib/format"
-import type { InsiderCriteria } from "@/lib/pipeline/insider-criteria"
 import type { Trade } from "@/lib/queries"
-import { cn } from "@/lib/utils"
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -38,48 +36,6 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
 const fmtShares = (n: number) =>
   n.toLocaleString("en-US", { maximumFractionDigits: 4 })
 
-const MONTH_INITIALS = "JFMAMJJASOND".split("")
-
-/** Year × month grid of the insider's open-market trades: the evidence behind the routine/opportunistic rule. */
-function MonthGrid({ criteria }: { criteria: InsiderCriteria }) {
-  return (
-    <div className="flex flex-col gap-1">
-      {criteria.years.map((y) => {
-        const months = criteria.monthsByYear[y]
-        return (
-          <div key={y} className="flex items-center gap-1">
-            <span className="w-10 text-xs text-muted-foreground tabular-nums">
-              {y}
-            </span>
-            {MONTH_INITIALS.map((m, i) => {
-              const traded = months?.includes(i + 1)
-              const routine = criteria.routineMonths.includes(i + 1)
-              return (
-                <span
-                  key={i}
-                  className={cn(
-                    "flex size-6 items-center justify-center rounded text-[10px]",
-                    traded
-                      ? routine
-                        ? "bg-secondary-foreground text-secondary"
-                        : "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground"
-                  )}
-                >
-                  {m}
-                </span>
-              )
-            })}
-            {months === undefined && (
-              <span className="text-xs text-muted-foreground">not checked</span>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 export function TradeDialog({
   trade,
   onClose,
@@ -88,7 +44,6 @@ export function TradeDialog({
   onClose: () => void
 }) {
   const t = trade
-  const criteria = t?.history?.criteria
   const prior = t?.history?.trades ?? []
   const premium =
     t?.quotePrice && t.pricePerShare ? t.quotePrice / t.pricePerShare - 1 : null
@@ -154,12 +109,8 @@ export function TradeDialog({
               {t.patternSummary && (
                 <p className="text-sm font-medium">{t.patternSummary}</p>
               )}
-              {criteria ? (
-                <MonthGrid criteria={criteria} />
-              ) : (
-                t.reasoning && (
-                  <p className="text-sm text-muted-foreground">{t.reasoning}</p>
-                )
+              {t.reasoning && (
+                <p className="text-sm text-muted-foreground">{t.reasoning}</p>
               )}
             </div>
 
@@ -219,10 +170,7 @@ export function TradeDialog({
             {prior.length > 0 && (
               <div className="flex flex-col gap-2">
                 <h4 className="text-sm font-semibold">
-                  Insider&apos;s open-market trades
-                  {criteria
-                    ? `, ${criteria.years[0]}–${criteria.years.at(-1)}`
-                    : ""}
+                  Insider&apos;s earlier open-market trades
                 </h4>
                 <div className="overflow-x-auto rounded-lg border">
                   <Table>

@@ -1,4 +1,5 @@
 import { eq, sql } from "drizzle-orm"
+import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 
@@ -50,3 +51,7 @@ export async function kvDelete(key: string): Promise<void> {
 
 /** `now()` for `updated_at` columns in upserts. */
 export const now = sql`now()`
+
+/** `COALESCE(new, existing)` for upserts — only overwrite a column when we learned something. */
+export const keep = (col: AnyPgColumn, v: unknown) =>
+  sql`COALESCE(${v ?? null}, ${col})`

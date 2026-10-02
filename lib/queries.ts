@@ -139,7 +139,6 @@ export interface Stats {
   notPurchase: number
   listing: number
   routine: number
-  history: number
   marketCap: number
   price: number
   order: number
@@ -183,7 +182,6 @@ export async function getStats(): Promise<Stats> {
     notPurchase: byStatus.get("skipped_not_purchase") ?? 0,
     listing: byStatus.get("skipped_listing") ?? 0,
     routine: byStatus.get("skipped_routine") ?? 0,
-    history: byStatus.get("skipped_history") ?? 0,
     marketCap: byStatus.get("skipped_market_cap") ?? 0,
     price: byStatus.get("skipped_price") ?? 0,
     order: byStatus.get("skipped_order") ?? 0,

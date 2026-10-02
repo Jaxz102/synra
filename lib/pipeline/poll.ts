@@ -1,5 +1,4 @@
 import { and, eq, inArray, lt, sql } from "drizzle-orm"
-import type { AnyPgColumn } from "drizzle-orm/pg-core"
 
 import {
   AlpacaError,
@@ -18,8 +17,7 @@ import {
 import {
   filings,
   getDb,
-  insiderAnalyses,
-  insiders,
+  keep,
   kvGet,
   kvSet,
   now,
@@ -27,16 +25,19 @@ import {
   stocks,
   trades,
   type FilingStatus,
-  type TradeHistory,
 } from "@/lib/db"
 import { env } from "@/lib/env"
 import { getMarketCap } from "@/lib/finnhub/client"
 import { fmtMoney, fmtMoneyCompact } from "@/lib/format"
 import {
   CLASSIFIER,
-  evaluateInsider,
-  type InsiderCriteria,
+  type InsiderEvaluation,
 } from "@/lib/pipeline/insider-criteria"
+import {
+  insiderRow,
+  insiderVerdict,
+  upsertInsider,
+} from "@/lib/pipeline/insiders"
 import { cikPadded, filingIndexHtmlUrl } from "@/lib/sec/client"
 import { fetchFeedDelta, type FeedFiling } from "@/lib/sec/feed"
 import {
@@ -67,7 +68,6 @@ export interface RunCounters {
   skipped_10b5_1: number
   skipped_listing: number
   skipped_routine: number
-  skipped_history: number
   skipped_market_cap: number
   skipped_price: number
   skipped_order: number
@@ -140,10 +140,6 @@ async function upsertFiling(f: FeedFiling, runId: number) {
     .onConflictDoNothing()
 }
 
-/** `COALESCE(new, existing)` — only overwrite a column when we learned something. */
-const keep = (col: AnyPgColumn, v: unknown) =>
-  sql`COALESCE(${v ?? null}, ${col})`
-
 async function finishFiling(
   accession: string,
   status: FilingStatus,
@@ -177,54 +173,18 @@ async function finishFiling(
     .where(eq(filings.accession, accession))
 }
 
-type InsiderEvaluation = TradeHistory & { criteria: InsiderCriteria }
-
-async function recordAnalysis(form: Form4, history: InsiderEvaluation) {
-  await getDb()
-    .insert(insiderAnalyses)
-    .values({
-      accession: form.accession,
-      insiderCik: form.owners[0]?.cik ?? "",
-      issuerCik: form.issuer.cik,
-      classifier: CLASSIFIER,
-      classification: history.criteria.verdict,
-      reasoning: history.criteria.detail,
-      patternSummary: history.criteria.summary,
-      history,
-    })
-}
-
-function relationshipOf(form: Form4): {
-  title: string | null
-  relationship: string | null
-} {
-  const o = form.owners[0]
-  if (!o) return { title: null, relationship: null }
-  const rel: string[] = []
-  if (o.isOfficer) rel.push("Officer")
-  if (o.isDirector) rel.push("Director")
-  if (o.isTenPercentOwner) rel.push("10% Owner")
-  if (o.isOther) rel.push("Other")
-  return {
-    title: o.officerTitle ?? o.otherText ?? (o.isDirector ? "Director" : null),
-    relationship: rel.join(", ") || null,
-  }
-}
-
 /** Writes the filled buy as stock + insider + trade rows (the Eraser ERD) in one transaction. */
 async function postTrade(
   form: Form4,
   trade: TradeSummary,
-  history: InsiderEvaluation,
+  insider: InsiderEvaluation,
   asset: AlpacaAsset,
   screen: { marketCap: number; quotePrice: number | null },
   filedDate: string | null,
   order: AlpacaOrder
 ) {
-  const owner = form.owners[0]
-  if (!owner?.cik) throw new Error("Form 4 has no reporting owner CIK")
+  const row = insiderRow(form)
   const stockId = cikPadded(form.issuer.cik)
-  const insiderId = cikPadded(owner.cik)
   let sector: string | null = null
   try {
     sector = (await getIssuerProfile(stockId)).sicDescription
@@ -233,9 +193,8 @@ async function postTrade(
       `[synra] issuer profile unavailable for ${stockId}: ${(err as Error).message}`
     )
   }
-  const { title, relationship } = relationshipOf(form)
   const tradeRow = {
-    insiderId,
+    insiderId: row.id,
     stockId,
     tradeType: "purchase",
     shares: Math.round(trade.shares),
@@ -250,11 +209,10 @@ async function postTrade(
       ...t,
       footnotes: t.footnoteIds.map((id) => form.footnotes[id]).filter(Boolean),
     })),
-    classification: history.criteria.verdict,
-    reasoning: history.criteria.detail,
-    patternSummary: history.criteria.summary,
+    classification: insider.verdict,
+    patternSummary: insider.summary,
     classifier: CLASSIFIER,
-    history,
+    history: { trades: insider.trades },
     filingUrl: form.indexUrl,
     marketCap: screen.marketCap,
     quotePrice: screen.quotePrice,
@@ -291,25 +249,7 @@ async function postTrade(
           updatedAt: now,
         },
       })
-    await tx
-      .insert(insiders)
-      .values({
-        id: insiderId,
-        name: owner.name ?? insiderId,
-        title,
-        relationship,
-        company: form.issuer.name,
-      })
-      .onConflictDoUpdate({
-        target: insiders.id,
-        set: {
-          name: owner.name ?? insiderId,
-          title: keep(insiders.title, title),
-          relationship: keep(insiders.relationship, relationship),
-          company: keep(insiders.company, form.issuer.name),
-          updatedAt: now,
-        },
-      })
+    await upsertInsider(tx, row)
     await tx
       .insert(trades)
       .values({ id: form.accession, ...tradeRow })
@@ -470,16 +410,12 @@ async function evaluateFiling(
     )
   const trade = summarizeTrade(form, stockBuys)
 
-  // Step 4: the insider must be an opportunistic trader (lib/pipeline/insider-criteria.ts).
-  const ownerCik = form.owners[0]?.cik
-  if (!ownerCik) throw new Error("Form 4 has no reporting owner CIK")
-  const history = await evaluateInsider(ownerCik, trade.date)
-  await recordAnalysis(form, history)
-  const { criteria } = history
-  if (criteria.verdict === "ineligible")
-    return skip("skipped_history", criteria.summary)
-  if (criteria.verdict === "routine")
-    return skip("skipped_routine", `Routine trader: ${criteria.summary}`)
+  // Step 4: the insider must be an opportunistic trader (lib/pipeline/insiders.ts).
+  const tradeDate = trade.date ?? f.filedDate
+  if (!tradeDate) throw new Error("Filing has no trade or filing date")
+  const insider = await insiderVerdict(form, tradeDate)
+  if (insider.verdict === "routine")
+    return skip("skipped_routine", `Routine trader: ${insider.summary}`)
 
   // Step 5: market capitalization of at least $100M.
   const marketCap = await getMarketCap(asset.symbol)
@@ -554,7 +490,7 @@ async function evaluateFiling(
   await postTrade(
     form,
     trade,
-    history,
+    insider,
     asset,
     { marketCap, quotePrice },
     f.filedDate,
@@ -563,7 +499,7 @@ async function evaluateFiling(
   await finishFiling(
     f.accession,
     "posted",
-    `Opportunistic: ${criteria.summary} Cap ${fmtMoneyCompact(marketCap)}, ${premium === null ? "" : `price ${fmtMoney(quotePrice, 2)} (${fmtPremium(premium)} vs filing), `}bought ${filledQty} @ ${fmtMoney(fill, 2)}.`,
+    `Opportunistic: ${insider.summary} Cap ${fmtMoneyCompact(marketCap)}, ${premium === null ? "" : `price ${fmtMoney(quotePrice, 2)} (${fmtPremium(premium)} vs filing), `}bought ${filledQty} @ ${fmtMoney(fill, 2)}.`,
     form,
     runId
   )
@@ -644,7 +580,6 @@ export async function runPoll(
     skipped_10b5_1: 0,
     skipped_listing: 0,
     skipped_routine: 0,
-    skipped_history: 0,
     skipped_market_cap: 0,
     skipped_price: 0,
     skipped_order: 0,
@@ -671,7 +606,6 @@ export async function runPoll(
         skippedNotPurchase: counters.skipped_not_purchase,
         skippedListing: counters.skipped_listing,
         skippedRoutine: counters.skipped_routine,
-        skippedHistory: counters.skipped_history,
         skippedMarketCap: counters.skipped_market_cap,
         skippedPrice: counters.skipped_price,
         skippedOrder: counters.skipped_order,
@@ -786,7 +720,7 @@ export async function runPoll(
       maxUpdated > 0 ? new Date(maxUpdated).toISOString() : cursorBefore
     await persist("success", undefined, cursorAfter)
     log(
-      `run #${runId} done: posted ${counters.posted}, sells ${counters.skipped_sell}, other ${counters.skipped_not_purchase}, 10b5-1 ${counters.skipped_10b5_1}, listing ${counters.skipped_listing}, routine ${counters.skipped_routine}, history ${counters.skipped_history}, market cap ${counters.skipped_market_cap}, price ${counters.skipped_price}, order ${counters.skipped_order}, deferred ${counters.deferred}, errors ${counters.errors}`
+      `run #${runId} done: posted ${counters.posted}, sells ${counters.skipped_sell}, other ${counters.skipped_not_purchase}, 10b5-1 ${counters.skipped_10b5_1}, listing ${counters.skipped_listing}, routine ${counters.skipped_routine}, market cap ${counters.skipped_market_cap}, price ${counters.skipped_price}, order ${counters.skipped_order}, deferred ${counters.deferred}, errors ${counters.errors}`
     )
     return { runId, counters }
   } catch (err) {
