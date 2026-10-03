@@ -15,9 +15,7 @@ import {
   type StockRow,
   type TradeRow,
 } from "@/lib/db"
-import { env } from "@/lib/env"
 import { CURSOR_KEY, currentRun, LAST_RUN_KEY } from "@/lib/pipeline/poll"
-import { intervalMs, nextScheduledRunAt } from "@/lib/pipeline/scheduler"
 
 /*
  * Read models for the dashboard. Timestamps are ISO strings so rows can be handed straight to client components.
@@ -195,13 +193,9 @@ export interface PollStatus {
   lastRunStartedAt: string | null
   lastRun: Run | null
   cursor: string | null
-  nextRunAt: string | null
-  intervalHours: number
-  schedulerEnabled: boolean
 }
 
 export async function getPollStatus(): Promise<PollStatus> {
-  const next = nextScheduledRunAt()
   const [lastRunStartedAt, cursor, [lastRun]] = await Promise.all([
     kvGet(LAST_RUN_KEY),
     kvGet(CURSOR_KEY),
@@ -218,8 +212,5 @@ export async function getPollStatus(): Promise<PollStatus> {
     lastRunStartedAt,
     lastRun: lastRun ?? null,
     cursor,
-    nextRunAt: next ? new Date(next).toISOString() : null,
-    intervalHours: intervalMs() / 3_600_000,
-    schedulerEnabled: env.schedulerEnabled,
   }
 }

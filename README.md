@@ -39,7 +39,7 @@ The schema is declared once in `lib/db/schema.ts`. To add or change a table:
 
 `bun run db:studio` opens Drizzle Studio to browse the data.
 
-Open http://localhost:3000. The dashboard shows signal tiles, the posted trades (click a row for the insider's month-by-year trading grid and the trades behind it), the full pipeline log, and run history. The page is read-only: runs come from the in-process scheduler, `bun run poll`, or the cron endpoint below.
+Open http://localhost:3000. The dashboard shows signal tiles, the posted trades (click a row for the insider's month-by-year trading grid and the trades behind it), the full pipeline log, and run history. The page is read-only: runs only start when the cron endpoint below is called, or from `bun run poll`. Nothing polls on its own.
 
 Other commands:
 
@@ -52,5 +52,5 @@ bun run build && bun run start
 
 ## Production (Vercel + Neon)
 
-- **Trigger:** set `SYNRA_SCHEDULER=0` and `CRON_SECRET` on Vercel, and have an external scheduler call `GET https://<app>/api/cron/poll` with `Authorization: Bearer $CRON_SECRET`. It answers `202 {"started":true}` right away and runs the poll in `after()`; `409` while a run is active in that instance, `401` without the secret. A run gets a ~220s budget so it finishes inside the function's 300s limit: no filing starts after it, and SEC/Finnhub requests stop at it, so a filing cut off mid-way goes back to the queue (without using an attempt) along with the rest. A lock left by an instance frozen mid-run expires two minutes past that budget, and every call, even a `409`, closes out runs left `running` for over 15 minutes. Since buys only happen while the market is open, schedule at least one call during market hours (9:30-16:00 ET) on weekdays.
+- **Trigger:** set `CRON_SECRET` on Vercel, and have an external scheduler call `GET https://<app>/api/cron/poll` with `Authorization: Bearer $CRON_SECRET`. It answers `202 {"started":true}` right away and runs the poll in `after()`; `409` while a run is active in that instance, `401` without the secret. A run gets a ~220s budget so it finishes inside the function's 300s limit: no filing starts after it, and SEC/Finnhub requests stop at it, so a filing cut off mid-way goes back to the queue (without using an attempt) along with the rest. A lock left by an instance frozen mid-run expires two minutes past that budget, and every call, even a `409`, closes out runs left `running` for over 15 minutes. Since buys only happen while the market is open, schedule at least one call during market hours (9:30-16:00 ET) on weekdays.
 - **Database:** Neon via `PRODUCTION_DATABASE_URL`. Apply the schema with `scripts/neon-schema.sql` (Neon SQL editor or `psql "$PRODUCTION_DATABASE_URL" -f scripts/neon-schema.sql`) or `NODE_ENV=production bun run db:migrate`; both apply only the migrations the database's drizzle journal doesn't list yet. After `bun run db:generate`, run `bun run db:neon-schema` to regenerate the SQL file. Deploy the code and migrate together: a migration that renames columns breaks the previously deployed code.

@@ -1,3 +1,9 @@
+"use client"
+
+import {
+  TablePagination,
+  usePagination,
+} from "@/components/dashboard/table-pagination"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -17,6 +23,7 @@ function duration(r: Run): string {
 }
 
 export function RunsTable({ runs }: { runs: Run[] }) {
+  const pagination = usePagination(runs)
   if (runs.length === 0) {
     return (
       <div className="rounded-xl border border-dashed py-16 text-center text-sm text-muted-foreground">
@@ -25,7 +32,7 @@ export function RunsTable({ runs }: { runs: Run[] }) {
     )
   }
   return (
-    <div className="overflow-x-auto rounded-xl border">
+    <div className="overflow-hidden rounded-xl border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -51,7 +58,7 @@ export function RunsTable({ runs }: { runs: Run[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {runs.map((r) => (
+          {pagination.rows.map((r) => (
             <TableRow key={r.id}>
               <TableCell className="tabular-nums">{r.id}</TableCell>
               <TableCell className="whitespace-nowrap tabular-nums">
@@ -106,6 +113,7 @@ export function RunsTable({ runs }: { runs: Run[] }) {
           ))}
         </TableBody>
       </Table>
+      <TablePagination pagination={pagination} />
     </div>
   )
 }

@@ -29,11 +29,9 @@ export const env = {
   secUserAgent:
     process.env.SEC_USER_AGENT?.trim() ||
     "Synra InsiderMonitor admin@example.com",
-  pollIntervalHours: num(process.env.POLL_INTERVAL_HOURS, 6),
   initialLookbackHours: num(process.env.INITIAL_LOOKBACK_HOURS, 12),
   maxFeedPages: num(process.env.MAX_FEED_PAGES, 20),
-  schedulerEnabled: process.env.SYNRA_SCHEDULER !== "0",
-  /** Shared secret an external scheduler must send as `Authorization: Bearer …` to /api/cron/poll. */
+  /** Shared secret a caller must send as `Authorization: Bearer …` to /api/cron/poll. */
   cronSecret: process.env.CRON_SECRET?.trim() ?? "",
   /** Postgres connection string. Required: all state lives there. See `databaseUrl()`. */
   databaseUrl: databaseUrl(),

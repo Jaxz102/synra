@@ -63,7 +63,7 @@ export default async function Page() {
             <TabsTrigger value="runs">Poll runs</TabsTrigger>
           </TabsList>
           <p className="text-xs text-muted-foreground">
-            Every {status.intervalHours}h · cursor{" "}
+            Cursor{" "}
             {status.cursor
               ? new Date(status.cursor).toLocaleString("en-US", {
                   month: "short",

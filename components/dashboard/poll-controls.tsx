@@ -41,23 +41,7 @@ export function PollControls({ status }: { status: PollStatus }) {
             </>
           )}
         </div>
-        <div>
-          {status.schedulerEnabled ? (
-            status.nextRunAt ? (
-              <>
-                Next{" "}
-                <span className="text-foreground">
-                  {fmtRelative(status.nextRunAt)}
-                </span>{" "}
-                · every {status.intervalHours}h
-              </>
-            ) : (
-              <>Scheduler every {status.intervalHours}h</>
-            )
-          ) : (
-            "Triggered by cron"
-          )}
-        </div>
+        <div>Triggered by /api/cron/poll</div>
       </div>
     </div>
   )

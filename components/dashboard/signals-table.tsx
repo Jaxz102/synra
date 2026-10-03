@@ -3,6 +3,10 @@
 import { ExternalLink } from "lucide-react"
 import * as React from "react"
 
+import {
+  TablePagination,
+  usePagination,
+} from "@/components/dashboard/table-pagination"
 import { TradeDialog } from "@/components/dashboard/trade-dialog"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -24,6 +28,7 @@ export function SignalsTable({
   scanned: number
 }) {
   const [open, setOpen] = React.useState<Trade | null>(null)
+  const pagination = usePagination(trades)
 
   if (trades.length === 0) {
     return (
@@ -40,7 +45,7 @@ export function SignalsTable({
 
   return (
     <>
-      <div className="overflow-x-auto rounded-xl border">
+      <div className="overflow-hidden rounded-xl border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -57,7 +62,7 @@ export function SignalsTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {trades.map((t) => (
+            {pagination.rows.map((t) => (
               <TableRow
                 key={t.id}
                 className="cursor-pointer"
@@ -125,6 +130,7 @@ export function SignalsTable({
             ))}
           </TableBody>
         </Table>
+        <TablePagination pagination={pagination} />
       </div>
       <TradeDialog trade={open} onClose={() => setOpen(null)} />
     </>

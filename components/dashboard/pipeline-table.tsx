@@ -1,5 +1,11 @@
+"use client"
+
 import { ExternalLink } from "lucide-react"
 
+import {
+  TablePagination,
+  usePagination,
+} from "@/components/dashboard/table-pagination"
 import { StatusBadge } from "@/components/dashboard/status-badge"
 import {
   Table,
@@ -13,6 +19,7 @@ import { fmtDateTime } from "@/lib/format"
 import type { Filing } from "@/lib/queries"
 
 export function PipelineTable({ filings }: { filings: Filing[] }) {
+  const pagination = usePagination(filings)
   if (filings.length === 0) {
     return (
       <div className="rounded-xl border border-dashed py-16 text-center text-sm text-muted-foreground">
@@ -21,7 +28,7 @@ export function PipelineTable({ filings }: { filings: Filing[] }) {
     )
   }
   return (
-    <div className="overflow-x-auto rounded-xl border">
+    <div className="overflow-hidden rounded-xl border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -34,7 +41,7 @@ export function PipelineTable({ filings }: { filings: Filing[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {filings.map((f) => (
+          {pagination.rows.map((f) => (
             <TableRow key={f.accession}>
               <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
                 {fmtDateTime(f.feedUpdated)}
@@ -81,6 +88,7 @@ export function PipelineTable({ filings }: { filings: Filing[] }) {
           ))}
         </TableBody>
       </Table>
+      <TablePagination pagination={pagination} />
     </div>
   )
 }
