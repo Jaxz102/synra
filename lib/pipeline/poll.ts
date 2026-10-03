@@ -26,6 +26,7 @@ import {
   trades,
   type FilingStatus,
 } from "@/lib/db"
+import { DeadlineExceeded, remainingMs, withDeadline } from "@/lib/deadline"
 import { env } from "@/lib/env"
 import { getMarketCap } from "@/lib/finnhub/client"
 import { fmtMoney, fmtMoneyCompact } from "@/lib/format"
@@ -86,21 +87,37 @@ export interface PollOptions {
   log?: (msg: string) => void
 }
 
-type G = typeof globalThis & {
-  __synraPollLock?: { runId: number; startedAt: string } | null
+interface PollLock {
+  runId: number
+  startedAt: string
+  /** Epoch ms after which the lock no longer blocks new runs; null for runs without a deadline. */
+  expiresAt: number | null
 }
 
-export function currentRun(): { runId: number; startedAt: string } | null {
-  return (globalThis as G).__synraPollLock ?? null
+type G = typeof globalThis & { __synraPollLock?: PollLock | null }
+
+/**
+ * The run holding this process's lock. A run with a deadline that never released its lock (a serverless instance
+ * frozen mid-run and later reused) stops counting once the lock expires.
+ */
+export function currentRun(): PollLock | null {
+  const lock = (globalThis as G).__synraPollLock
+  return lock && (lock.expiresAt === null || Date.now() < lock.expiresAt)
+    ? lock
+    : null
 }
 
-function setLock(v: { runId: number; startedAt: string } | null) {
-  ;(globalThis as G).__synraPollLock = v
+/** Releases `lock` unless a newer run has already replaced it. */
+function releaseLock(lock: PollLock) {
+  const g = globalThis as G
+  if (g.__synraPollLock === lock) g.__synraPollLock = null
 }
 
 const MAX_ATTEMPTS = 3
 /** A run still "running" after this long was cut off (e.g. a serverless timeout) and is closed out as an error. */
 const STALE_RUN_MS = 15 * 60_000
+/** How long past its deadline a run's lock holds: room to finish the filing in progress and record the run. */
+const LOCK_GRACE_MS = 2 * 60_000
 
 /* Screening thresholds from the "SEC Filtering Pipeline" Linear doc. */
 const LISTED_EXCHANGES = ["NYSE", "NASDAQ"]
@@ -121,23 +138,44 @@ const FINAL_ORDER_STATUSES = new Set([
   "suspended",
 ])
 
-async function upsertFiling(f: FeedFiling, runId: number) {
+/** Queues the run's new feed filings in one insert. */
+async function insertFilings(fresh: FeedFiling[], runId: number) {
+  if (!fresh.length) return
   await getDb()
     .insert(filings)
-    .values({
-      accession: f.accession,
-      cik: f.pathCik,
-      issuerCik: f.issuerCik,
-      issuerName: f.issuerName,
-      insiderCik: f.reportingCiks[0] ?? null,
-      insiderName: f.reportingNames[0] ?? null,
-      feedUpdated: new Date(f.updated),
-      filedDate: f.filedDate,
-      status: "queued",
-      runId,
-      indexUrl: filingIndexHtmlUrl(f.pathCik, f.accession),
-    })
+    .values(
+      fresh.map((f) => ({
+        accession: f.accession,
+        cik: f.pathCik,
+        issuerCik: f.issuerCik,
+        issuerName: f.issuerName,
+        insiderCik: f.reportingCiks[0] ?? null,
+        insiderName: f.reportingNames[0] ?? null,
+        feedUpdated: new Date(f.updated),
+        filedDate: f.filedDate,
+        status: "queued" as const,
+        runId,
+        indexUrl: filingIndexHtmlUrl(f.pathCik, f.accession),
+      }))
+    )
     .onConflictDoNothing()
+}
+
+/** Closes out runs left "running" by a process that died mid-run. */
+export async function closeStaleRuns() {
+  await getDb()
+    .update(pollRuns)
+    .set({
+      status: "error",
+      error: "interrupted: the process ended before the run finished",
+      finishedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(pollRuns.status, "running"),
+        lt(pollRuns.startedAt, new Date(Date.now() - STALE_RUN_MS))
+      )
+    )
 }
 
 async function finishFiling(
@@ -535,9 +573,20 @@ async function requeueErrors(): Promise<FeedFiling[]> {
   }))
 }
 
-export async function runPoll(
+/**
+ * One poll run. With `opts.deadline`, no filing is started after it and SEC/Finnhub requests stop at it
+ * (lib/deadline.ts), so a filing cut off mid-way is left queued for the next run.
+ */
+export function runPoll(
   trigger: PollTrigger,
   opts: PollOptions = {}
+): Promise<{ runId: number; counters: RunCounters }> {
+  return withDeadline(opts.deadline, () => poll(trigger, opts))
+}
+
+async function poll(
+  trigger: PollTrigger,
+  opts: PollOptions
 ): Promise<{ runId: number; counters: RunCounters }> {
   if (currentRun()) throw new Error("A poll run is already in progress")
   const log = opts.log ?? ((m: string) => console.log(`[synra] ${m}`))
@@ -545,33 +594,26 @@ export async function runPoll(
   const started = new Date()
   const startedAt = started.toISOString()
   // Take the lock before the first await so a second trigger in the same tick is rejected.
-  setLock({ runId: 0, startedAt })
+  const lock: PollLock = {
+    runId: 0,
+    startedAt,
+    expiresAt: opts.deadline ? opts.deadline + LOCK_GRACE_MS : null,
+  }
+  ;(globalThis as G).__synraPollLock = lock
   let cursorBefore: string | null
   let runId: number
   try {
-    await db
-      .update(pollRuns)
-      .set({
-        status: "error",
-        error: "interrupted: the process ended before the run finished",
-        finishedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(pollRuns.status, "running"),
-          lt(pollRuns.startedAt, new Date(Date.now() - STALE_RUN_MS))
-        )
-      )
+    await closeStaleRuns()
     cursorBefore = await kvGet(CURSOR_KEY)
     ;[{ id: runId }] = await db
       .insert(pollRuns)
       .values({ trigger, status: "running", startedAt: started, cursorBefore })
       .returning({ id: pollRuns.id })
   } catch (err) {
-    setLock(null)
+    releaseLock(lock)
     throw err
   }
-  setLock({ runId, startedAt })
+  lock.runId = runId
   const counters: RunCounters = {
     feed_entries: 0,
     new_filings: 0,
@@ -664,7 +706,7 @@ export async function runPoll(
     log(
       `${delta.filings.length} filings in delta, ${fresh.length} new, ${retries.length} retries, processing ${queue.length}${delta.reachedCursor ? "" : " (feed paging limit reached before cursor)"}`
     )
-    for (const f of fresh) await upsertFiling(f, runId)
+    await insertFilings(fresh, runId)
     await persist("running")
 
     // Alpaca's clock, re-read at most once a minute so a long run notices the open or close.
@@ -678,7 +720,7 @@ export async function runPoll(
     let maxUpdated = cursorBefore ? Date.parse(cursorBefore) : 0
     let processed = 0
     for (const f of queue) {
-      if (opts.deadline && Date.now() > opts.deadline) {
+      if (remainingMs() <= 0) {
         log(
           `time budget reached after ${processed} filings; ${queue.length - processed} left queued`
         )
@@ -693,6 +735,20 @@ export async function runPoll(
         if (status === "posted") counters.posted += 1
         else if (status !== "error") counters[status as keyof RunCounters] += 1
       } catch (err) {
+        if (err instanceof DeadlineExceeded) {
+          log(
+            `time budget ran out during ${f.accession}; ${queue.length - processed} left queued`
+          )
+          await finishFiling(
+            f.accession,
+            "queued",
+            "Run time budget ran out mid-filing; retried on a later run",
+            null,
+            runId,
+            false
+          )
+          break
+        }
         counters.errors += 1
         const msg = (err as Error).message ?? String(err)
         log(`  error ${f.accession}: ${msg}`)
@@ -731,6 +787,6 @@ export async function runPoll(
     log(`run #${runId} failed: ${msg}`)
     throw err
   } finally {
-    setLock(null)
+    releaseLock(lock)
   }
 }

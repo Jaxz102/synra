@@ -1,3 +1,4 @@
+import { assertTimeLeft, backoffMs, requestTimeout } from "@/lib/deadline"
 import { env } from "@/lib/env"
 import { sleep, throttle } from "@/lib/throttle"
 
@@ -23,6 +24,7 @@ export async function secFetch(
 ): Promise<Response> {
   let attempt = 0
   for (;;) {
+    assertTimeLeft()
     await acquireSlot()
     let res: Response
     try {
@@ -34,7 +36,7 @@ export async function secFetch(
             "application/json, application/xml, text/xml, text/html;q=0.8, */*;q=0.5",
           ...(init.headers ?? {}),
         },
-        signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: init.signal ?? requestTimeout(REQUEST_TIMEOUT_MS),
       })
     } catch (err) {
       // Network hiccups and timeouts are retried the same way as throttling responses.
@@ -43,7 +45,7 @@ export async function secFetch(
           `SEC request failed after ${attempt + 1} attempts: ${url} (${(err as Error).name}: ${(err as Error).message})`
         )
       attempt += 1
-      await sleep(1000 * 2 ** attempt)
+      await sleep(backoffMs(1000 * 2 ** attempt))
       continue
     }
     if (res.ok) return res
@@ -52,7 +54,7 @@ export async function secFetch(
     if (!retryable || attempt >= MAX_RETRIES)
       throw new SecHttpError(res.status, url)
     attempt += 1
-    await sleep(1000 * 2 ** attempt)
+    await sleep(backoffMs(1000 * 2 ** attempt))
   }
 }
 

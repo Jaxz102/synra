@@ -1,7 +1,7 @@
 import { after } from "next/server"
 
 import { env } from "@/lib/env"
-import { currentRun, runPoll } from "@/lib/pipeline/poll"
+import { closeStaleRuns, currentRun, runPoll } from "@/lib/pipeline/poll"
 
 export const dynamic = "force-dynamic"
 // The run continues in `after()` once the response is sent; it is still bounded by this limit.
@@ -17,6 +17,7 @@ export async function GET(req: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 })
   }
   if (currentRun()) {
+    await closeStaleRuns()
     return Response.json(
       { started: false, reason: "A poll run is already in progress" },
       { status: 409 }
