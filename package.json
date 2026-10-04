@@ -15,7 +15,7 @@
     "db:down": "docker compose down",
     "db:psql": "docker exec -it synradb psql -U synra -d synradb",
     "db:generate": "drizzle-kit generate",
-    "db:neon-schema": "bun run scripts/neon-schema.ts",
+    "db:planet-schema": "bun run scripts/planet-schema.ts",
     "db:migrate": "bun run scripts/migrate.ts",
     "db:studio": "drizzle-kit studio"
   },

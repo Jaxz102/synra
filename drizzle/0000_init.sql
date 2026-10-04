@@ -32,14 +32,11 @@ CREATE TABLE "insider_analyses" (
 	"insider_cik" text NOT NULL,
 	"issuer_cik" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"model" text NOT NULL,
+	"classifier" text NOT NULL,
 	"classification" text NOT NULL,
-	"confidence" double precision,
 	"reasoning" text,
 	"pattern_summary" text,
-	"history" jsonb,
-	"prompt_tokens" integer,
-	"completion_tokens" integer
+	"history" jsonb
 );
 --> statement-breakpoint
 CREATE TABLE "insiders" (
@@ -48,6 +45,9 @@ CREATE TABLE "insiders" (
 	"title" text,
 	"relationship" text,
 	"company" text,
+	"trader_type" text,
+	"trader_evaluation" jsonb,
+	"trader_classified_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -76,7 +76,13 @@ CREATE TABLE "poll_runs" (
 	"skipped_10b5_1" integer DEFAULT 0 NOT NULL,
 	"skipped_sell" integer DEFAULT 0 NOT NULL,
 	"skipped_not_purchase" integer DEFAULT 0 NOT NULL,
+	"skipped_listing" integer DEFAULT 0 NOT NULL,
 	"skipped_routine" integer DEFAULT 0 NOT NULL,
+	"skipped_history" integer DEFAULT 0 NOT NULL,
+	"skipped_market_cap" integer DEFAULT 0 NOT NULL,
+	"skipped_price" integer DEFAULT 0 NOT NULL,
+	"skipped_order" integer DEFAULT 0 NOT NULL,
+	"deferred" integer DEFAULT 0 NOT NULL,
 	"posted" integer DEFAULT 0 NOT NULL,
 	"errors" integer DEFAULT 0 NOT NULL,
 	"error" text
@@ -105,13 +111,25 @@ CREATE TABLE "trades" (
 	"posted_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"shares_after" double precision,
 	"transactions" jsonb NOT NULL,
-	"ai_classification" text,
-	"ai_confidence" double precision,
-	"ai_reasoning" text,
-	"ai_pattern" text,
-	"ai_model" text,
+	"classification" text,
+	"reasoning" text,
+	"pattern_summary" text,
+	"classifier" text,
 	"history" jsonb,
 	"filing_url" text,
+	"market_cap" double precision,
+	"quote_price" numeric(18, 4),
+	"alpaca_order_id" text,
+	"alpaca_client_order_id" text,
+	"alpaca_order_status" text,
+	"alpaca_order_notional" numeric(18, 2),
+	"alpaca_order_qty" double precision,
+	"alpaca_order_limit_price" numeric(18, 4),
+	"alpaca_order_error" text,
+	"alpaca_ordered_at" timestamp with time zone,
+	"alpaca_filled_qty" double precision,
+	"alpaca_filled_avg_price" numeric(18, 4),
+	"alpaca_filled_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );

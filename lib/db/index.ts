@@ -16,7 +16,7 @@ declare global {
 
 function create() {
   if (!env.databaseUrl) throw new Error("DATABASE_URL is not set")
-  // postgres.js runs on both Bun (local) and Node (Vercel); Neon requires sslmode=require in the URL.
+
   const client = postgres(env.databaseUrl, {
     max: 8,
     connect_timeout: 10,

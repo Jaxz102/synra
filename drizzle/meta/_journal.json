@@ -5,43 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1789931978694,
-      "tag": "0000_high_lionheart",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1789940042568,
-      "tag": "0001_alpaca_orders",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1790828772525,
-      "tag": "0002_screening_criteria",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1790869002706,
-      "tag": "0003_market_orders",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1790953549588,
-      "tag": "0004_insider_trader_type",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
       "when": 1790964598967,
-      "tag": "0005_insider_trader_evaluation",
+      "tag": "0000_init",
       "breakpoints": true
     }
   ]
