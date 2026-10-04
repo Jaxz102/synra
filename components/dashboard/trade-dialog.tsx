@@ -1,7 +1,9 @@
 "use client"
 
 import { ExternalLink } from "lucide-react"
+import * as React from "react"
 
+import { loadTradeDetail } from "@/app/actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { fmtDate, fmtInt, fmtMoney, fmtMoneyCompact } from "@/lib/format"
-import type { Trade } from "@/lib/queries"
+import type { Trade, TradeDetail } from "@/lib/queries"
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -36,6 +38,38 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
 const fmtShares = (n: number) =>
   n.toLocaleString("en-US", { maximumFractionDigits: 4 })
 
+type DetailState =
+  | { status: "loading"; data?: undefined }
+  | { status: "error"; data?: undefined }
+  | { status: "ready"; data: TradeDetail }
+
+/** Fetches the open trade's transactions and history; a response for a trade no longer open is dropped. */
+function useTradeDetail(id: string | undefined): DetailState {
+  const [state, setState] = React.useState<{
+    id: string
+    detail: DetailState
+  } | null>(null)
+  React.useEffect(() => {
+    if (!id) return
+    let live = true
+    loadTradeDetail(id)
+      .then((data) => {
+        if (live)
+          setState({
+            id,
+            detail: data ? { status: "ready", data } : { status: "error" },
+          })
+      })
+      .catch(() => {
+        if (live) setState({ id, detail: { status: "error" } })
+      })
+    return () => {
+      live = false
+    }
+  }, [id])
+  return state && state.id === id ? state.detail : { status: "loading" }
+}
+
 export function TradeDialog({
   trade,
   onClose,
@@ -44,7 +78,8 @@ export function TradeDialog({
   onClose: () => void
 }) {
   const t = trade
-  const prior = t?.history?.trades ?? []
+  const detail = useTradeDetail(t?.id)
+  const prior = detail.data?.history?.trades ?? []
   const premium =
     t?.quotePrice && t.pricePerShare ? t.quotePrice / t.pricePerShare - 1 : null
   return (
@@ -120,51 +155,59 @@ export function TradeDialog({
               <h4 className="text-sm font-semibold">
                 Purchases on this filing
               </h4>
-              <div className="overflow-x-auto rounded-lg border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Security</TableHead>
-                      <TableHead className="text-right">Shares</TableHead>
-                      <TableHead className="text-right">Price</TableHead>
-                      <TableHead className="text-right">After</TableHead>
-                      <TableHead>Ownership</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {t.transactions.map((x, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="whitespace-nowrap tabular-nums">
-                          {fmtDate(x.date)}
-                        </TableCell>
-                        <TableCell>
-                          <div>{x.securityTitle}</div>
-                          {x.footnotes.length > 0 && (
-                            <div className="max-w-md text-xs whitespace-normal text-muted-foreground">
-                              {x.footnotes.join(" ")}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {fmtInt(x.shares)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {fmtMoney(x.pricePerShare, 2)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {fmtInt(x.sharesAfter)}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {x.ownership === "I"
-                            ? `Indirect${x.natureOfOwnership ? ` · ${x.natureOfOwnership}` : ""}`
-                            : "Direct"}
-                        </TableCell>
+              {detail.status !== "ready" ? (
+                <p className="text-sm text-muted-foreground">
+                  {detail.status === "loading"
+                    ? "Loading…"
+                    : "Couldn’t load the filing details."}
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Security</TableHead>
+                        <TableHead className="text-right">Shares</TableHead>
+                        <TableHead className="text-right">Price</TableHead>
+                        <TableHead className="text-right">After</TableHead>
+                        <TableHead>Ownership</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {detail.data.transactions.map((x, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="whitespace-nowrap tabular-nums">
+                            {fmtDate(x.date)}
+                          </TableCell>
+                          <TableCell>
+                            <div>{x.securityTitle}</div>
+                            {x.footnotes.length > 0 && (
+                              <div className="max-w-md text-xs whitespace-normal text-muted-foreground">
+                                {x.footnotes.join(" ")}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {fmtInt(x.shares)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {fmtMoney(x.pricePerShare, 2)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {fmtInt(x.sharesAfter)}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {x.ownership === "I"
+                              ? `Indirect${x.natureOfOwnership ? ` · ${x.natureOfOwnership}` : ""}`
+                              : "Direct"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </div>
 
             {prior.length > 0 && (

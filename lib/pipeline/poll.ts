@@ -57,6 +57,10 @@ export type { FilingStatus }
 
 export const CURSOR_KEY = "feed_cursor_updated"
 export const LAST_RUN_KEY = "last_run_started_at"
+/** Bumped whenever dashboard data changes; the dashboard's cache key (lib/queries.ts) and the page's refresh check. */
+export const DATA_VERSION_KEY = "dashboard_version"
+
+const bumpDataVersion = () => kvSet(DATA_VERSION_KEY, new Date().toISOString())
 
 export type PollTrigger = "schedule" | "manual" | "cli"
 
@@ -735,8 +739,11 @@ async function poll(
         .where(eq(filings.accession, f.accession))
       try {
         const status = await evaluateFiling(f, runId, log, marketOpen)
-        if (status === "posted") counters.posted += 1
-        else if (status !== "error") counters[status as keyof RunCounters] += 1
+        if (status === "posted") {
+          counters.posted += 1
+          await bumpDataVersion()
+        } else if (status !== "error")
+          counters[status as keyof RunCounters] += 1
       } catch (err) {
         if (err instanceof DeadlineExceeded) {
           log(
@@ -790,6 +797,9 @@ async function poll(
     log(`run #${runId} failed: ${msg}`)
     throw err
   } finally {
+    await bumpDataVersion().catch((e) =>
+      log(`could not bump the dashboard version: ${(e as Error).message}`)
+    )
     releaseLock(lock)
   }
 }

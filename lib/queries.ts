@@ -1,4 +1,5 @@
 import { count, desc, eq, gte, notInArray, sum } from "drizzle-orm"
+import { cacheLife } from "next/cache"
 
 import {
   filings,
@@ -10,12 +11,15 @@ import {
   trades,
   type FilingRow,
   type FilingStatus,
-  type InsiderRow,
   type PollRunRow,
-  type StockRow,
   type TradeRow,
 } from "@/lib/db"
-import { CURSOR_KEY, currentRun, LAST_RUN_KEY } from "@/lib/pipeline/poll"
+import {
+  CURSOR_KEY,
+  currentRun,
+  DATA_VERSION_KEY,
+  LAST_RUN_KEY,
+} from "@/lib/pipeline/poll"
 
 /*
  * Read models for the dashboard. Timestamps are ISO strings so rows can be handed straight to client components.
@@ -23,9 +27,29 @@ import { CURSOR_KEY, currentRun, LAST_RUN_KEY } from "@/lib/pipeline/poll"
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null)
 
-export interface Trade extends Omit<
+/** A trade row as the signals table and dialog header need it; the heavy JSON lives in {@link TradeDetail}. */
+export interface Trade extends Pick<
   TradeRow,
-  "postedAt" | "createdAt" | "updatedAt"
+  | "id"
+  | "shares"
+  | "pricePerShare"
+  | "totalValue"
+  | "tradeDate"
+  | "filingDate"
+  | "sharesAfter"
+  | "classification"
+  | "reasoning"
+  | "patternSummary"
+  | "classifier"
+  | "filingUrl"
+  | "marketCap"
+  | "quotePrice"
+  | "alpacaOrderId"
+  | "alpacaOrderStatus"
+  | "alpacaOrderLimitPrice"
+  | "alpacaOrderError"
+  | "alpacaFilledQty"
+  | "alpacaFilledAvgPrice"
 > {
   postedAt: string
   ticker: string | null
@@ -36,35 +60,61 @@ export interface Trade extends Omit<
 
 export async function listTrades(limit = 200): Promise<Trade[]> {
   const rows = await getDb()
-    .select({ trade: trades, stock: stocks, insider: insiders })
+    .select({
+      id: trades.id,
+      shares: trades.shares,
+      pricePerShare: trades.pricePerShare,
+      totalValue: trades.totalValue,
+      tradeDate: trades.tradeDate,
+      filingDate: trades.filingDate,
+      sharesAfter: trades.sharesAfter,
+      classification: trades.classification,
+      reasoning: trades.reasoning,
+      patternSummary: trades.patternSummary,
+      classifier: trades.classifier,
+      filingUrl: trades.filingUrl,
+      marketCap: trades.marketCap,
+      quotePrice: trades.quotePrice,
+      alpacaOrderId: trades.alpacaOrderId,
+      alpacaOrderStatus: trades.alpacaOrderStatus,
+      alpacaOrderLimitPrice: trades.alpacaOrderLimitPrice,
+      alpacaOrderError: trades.alpacaOrderError,
+      alpacaFilledQty: trades.alpacaFilledQty,
+      alpacaFilledAvgPrice: trades.alpacaFilledAvgPrice,
+      postedAt: trades.postedAt,
+      ticker: stocks.ticker,
+      issuerName: stocks.companyName,
+      insiderName: insiders.name,
+      insiderTitle: insiders.title,
+      insiderRelationship: insiders.relationship,
+    })
     .from(trades)
     .innerJoin(stocks, eq(stocks.id, trades.stockId))
     .innerJoin(insiders, eq(insiders.id, trades.insiderId))
     .orderBy(desc(trades.postedAt), desc(trades.id))
     .limit(limit)
-  return rows.map(
-    ({
-      trade,
-      stock,
-      insider,
-    }: {
-      trade: TradeRow
-      stock: StockRow
-      insider: InsiderRow
-    }) => {
-      const { createdAt, updatedAt, ...t } = trade
-      void createdAt
-      void updatedAt
-      return {
-        ...t,
-        postedAt: trade.postedAt.toISOString(),
-        ticker: stock.ticker,
-        issuerName: stock.companyName,
-        insiderName: insider.name,
-        insiderRole: insider.title ?? insider.relationship,
-      }
-    }
-  )
+  return rows.map(({ insiderTitle, insiderRelationship, ...t }) => ({
+    ...t,
+    postedAt: t.postedAt.toISOString(),
+    insiderRole: insiderTitle ?? insiderRelationship,
+  }))
+}
+
+/** The trade dialog's transaction table and the insider's prior trades, loaded when the dialog opens. */
+export type TradeDetail = Pick<TradeRow, "transactions" | "history">
+
+/**
+ * Posted trades never change after their fill, so the detail is cached per accession. `remote` keeps one entry shared
+ * by every serverless instance; the default in-memory handler would rarely hit on Vercel.
+ */
+export async function getTradeDetail(id: string): Promise<TradeDetail | null> {
+  "use cache: remote"
+  cacheLife("days")
+  const [row] = await getDb()
+    .select({ transactions: trades.transactions, history: trades.history })
+    .from(trades)
+    .where(eq(trades.id, id))
+  return row ?? null
 }
 
 export interface Filing extends Omit<
@@ -190,15 +240,18 @@ export async function getStats(): Promise<Stats> {
 
 export interface PollStatus {
   running: { runId: number; startedAt: string } | null
+  /** The dashboard data version (see {@link getDashboard}). */
+  version: string
   lastRunStartedAt: string | null
   lastRun: Run | null
   cursor: string | null
 }
 
 export async function getPollStatus(): Promise<PollStatus> {
-  const [lastRunStartedAt, cursor, [lastRun]] = await Promise.all([
+  const [lastRunStartedAt, cursor, version, [lastRun]] = await Promise.all([
     kvGet(LAST_RUN_KEY),
     kvGet(CURSOR_KEY),
+    kvGet(DATA_VERSION_KEY),
     listRuns(1),
   ])
   // On Vercel the run lives in another invocation, so fall back to a recent run row still marked "running".
@@ -209,8 +262,34 @@ export async function getPollStatus(): Promise<PollStatus> {
     running:
       currentRun() ??
       (recent ? { runId: lastRun.id, startedAt: lastRun.startedAt } : null),
+    version: version ?? "0",
     lastRunStartedAt,
     lastRun: lastRun ?? null,
     cursor,
   }
+}
+
+export interface Dashboard {
+  stats: Stats
+  trades: Trade[]
+  filings: Filing[]
+  runs: Run[]
+}
+
+/**
+ * The dashboard tables, cached by data version: the poll bumps `kv.dashboard_version` when it posts a trade or ends a
+ * run, so a new version is a cache miss and every viewer shares one read per version (`remote` shares the entry across
+ * serverless instances). The hourly revalidate catches writes that don't bump it (e.g. closeStaleRuns).
+ */
+export async function getDashboard(version: string): Promise<Dashboard> {
+  "use cache: remote"
+  cacheLife("hours")
+  void version // only the cache key
+  const [stats, trades, filings, runs] = await Promise.all([
+    getStats(),
+    listTrades(),
+    listFilings(),
+    listRuns(),
+  ])
+  return { stats, trades, filings, runs }
 }
