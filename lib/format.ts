@@ -13,6 +13,23 @@ export function fmtMoney(n: number | null | undefined, digits = 0): string {
   })
 }
 
+const moneyLarge = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  notation: "compact",
+  maximumFractionDigits: 2,
+})
+
+/** Full currency below $1B; $1.42B / $2.43T at and above it. */
+export function fmtMoneyLarge(
+  n: number | null | undefined,
+  digits = 0
+): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return "—"
+  if (Math.abs(n) >= 1_000_000_000) return moneyLarge.format(n)
+  return fmtMoney(n, digits)
+}
+
 /** Compact currency for tiles: $4.2M, $310K. */
 export function fmtMoneyCompact(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return "—"

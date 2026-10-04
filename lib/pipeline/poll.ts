@@ -94,14 +94,16 @@ interface PollLock {
   expiresAt: number | null
 }
 
-type G = typeof globalThis & { __synraPollLock?: PollLock | null }
+declare global {
+  var __synraPollLock: PollLock | null | undefined
+}
 
 /**
  * The run holding this process's lock. A run with a deadline that never released its lock (a serverless instance
  * frozen mid-run and later reused) stops counting once the lock expires.
  */
 export function currentRun(): PollLock | null {
-  const lock = (globalThis as G).__synraPollLock
+  const lock = globalThis.__synraPollLock
   return lock && (lock.expiresAt === null || Date.now() < lock.expiresAt)
     ? lock
     : null
@@ -109,8 +111,7 @@ export function currentRun(): PollLock | null {
 
 /** Releases `lock` unless a newer run has already replaced it. */
 function releaseLock(lock: PollLock) {
-  const g = globalThis as G
-  if (g.__synraPollLock === lock) g.__synraPollLock = null
+  if (globalThis.__synraPollLock === lock) globalThis.__synraPollLock = null
 }
 
 const MAX_ATTEMPTS = 3
@@ -593,15 +594,17 @@ async function poll(
   const db = getDb()
   const started = new Date()
   const startedAt = started.toISOString()
-  // Take the lock before the first await so a second trigger in the same tick is rejected.
+
   const lock: PollLock = {
     runId: 0,
     startedAt,
     expiresAt: opts.deadline ? opts.deadline + LOCK_GRACE_MS : null,
   }
-  ;(globalThis as G).__synraPollLock = lock
+
+  globalThis.__synraPollLock = lock
   let cursorBefore: string | null
   let runId: number
+
   try {
     await closeStaleRuns()
     cursorBefore = await kvGet(CURSOR_KEY)
@@ -613,6 +616,7 @@ async function poll(
     releaseLock(lock)
     throw err
   }
+
   lock.runId = runId
   const counters: RunCounters = {
     feed_entries: 0,
@@ -658,7 +662,6 @@ async function poll(
       .where(eq(pollRuns.id, runId))
 
   try {
-    // Steps 3, 5 and 6 need these; failing the run keeps the cursor put instead of burning filings' retries.
     if (!alpacaConfigured() || !env.finnhubApiKey)
       throw new Error(
         "ALPACA_KEY, ALPACA_SECRET and FINNHUB_API_KEY must be set"

@@ -17,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { fmtDate, fmtInt, fmtMoney, fmtRelative } from "@/lib/format"
+import { fmtDate, fmtInt, fmtMoneyLarge, fmtRelative } from "@/lib/format"
 import type { Trade } from "@/lib/queries"
 
 export function SignalsTable({
@@ -91,10 +91,10 @@ export function SignalsTable({
                   {fmtInt(t.shares)}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {fmtMoney(t.pricePerShare, 2)}
+                  {fmtMoneyLarge(t.pricePerShare, 2)}
                 </TableCell>
                 <TableCell className="text-right font-medium tabular-nums">
-                  {fmtMoney(t.totalValue)}
+                  {fmtMoneyLarge(t.totalValue)}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {fmtInt(t.sharesAfter)}

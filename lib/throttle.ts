@@ -1,16 +1,17 @@
 type Gate = { chain: Promise<void>; last: number }
 
-type G = typeof globalThis & { __synraGates?: Map<string, Gate> }
+declare global {
+  var __synraGates: Map<string, Gate> | undefined
+}
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 function gate(key: string): Gate {
-  const g = globalThis as G
-  g.__synraGates ??= new Map()
-  let s = g.__synraGates.get(key)
+  const gates = (globalThis.__synraGates ??= new Map())
+  let s = gates.get(key)
   if (!s) {
     s = { chain: Promise.resolve(), last: 0 }
-    g.__synraGates.set(key, s)
+    gates.set(key, s)
   }
   return s
 }

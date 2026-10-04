@@ -9,7 +9,10 @@ import * as schema from "@/lib/db/schema"
 export * from "@/lib/db/schema"
 
 export type Db = ReturnType<typeof create>
-type G = typeof globalThis & { __synraDb?: Db }
+
+declare global {
+  var __synraDb: Db | undefined
+}
 
 function create() {
   if (!env.databaseUrl) throw new Error("DATABASE_URL is not set")
@@ -25,9 +28,7 @@ function create() {
 
 /** Drizzle over postgres.js. One pool per process, survives Next dev reloads. */
 export function getDb(): Db {
-  const g = globalThis as G
-  if (!g.__synraDb) g.__synraDb = create()
-  return g.__synraDb
+  return (globalThis.__synraDb ??= create())
 }
 
 export async function kvGet(key: string): Promise<string | null> {
