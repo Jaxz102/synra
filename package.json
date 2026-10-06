@@ -10,7 +10,6 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "poll": "bun run scripts/poll.ts",
     "db:up": "docker compose up -d synradb",
     "db:down": "docker compose down",
     "db:psql": "docker exec -it synradb psql -U synra -d synradb",

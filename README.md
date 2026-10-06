@@ -14,7 +14,7 @@ Every 6 hours (configurable) a poll run:
    4. **Opportunistic insider**: if the insider made an open-market trade (`P` or `S`, any issuer) in the trade's month in each of the three preceding years (for an October 2026 trade: October 2025, 2024 and 2023), they are routine (`skipped_routine`); otherwise opportunistic. Only the Form 4s that can cover those three months are downloaded (listed via `data.sec.gov/submissions`), and the lookup stops at the first year without a trade. The label is stored on the insider's `insiders` row (`trader_type`, plus the summary and evidence trades in `trader_evaluation`) and never changes: all their later filings reuse it without another lookup (logged in `insider_analyses` with classifier `rule:trade-month-3y:stored`). Filings skipped as `skipped_history` come from the earlier rule, which also required a trade in every year.
    5. **Market cap of at least $100M**, from Finnhub's company profile (`skipped_market_cap`).
    6. **Price hasn't run:** the latest Alpaca trade is at most 2% above the filing's share-weighted purchase price (`skipped_price`). Steps 6-7 only run while the market is open (Alpaca's clock); a filing that passes steps 1-5 while it is closed stays `queued` for a later run without using up a retry (counted as *deferred*).
-   7. **Buy:** a day market buy of `$ALPACA_ORDER_NOTIONAL` (whole shares for stocks Alpaca can't trade fractionally), keyed by the accession number so a filing is never bought twice. The run waits up to 30s for the fill and cancels the order if it hasn't filled. Only a filled buy is posted to `trades`, with the fill quantity and price; an order Alpaca refuses or that doesn't fill is `skipped_order`. If an earlier attempt already placed an order for the filing, that order is picked up instead of re-checking the price.
+   7. **Buy:** a day market buy of `$ALPACA_ORDER_NOTIONAL` (whole shares for stocks Alpaca can't trade fractionally), keyed by the accession number so a filing is never bought twice. The run waits up to 30s for the fill and cancels the order if it hasn't filled. Outside production (`NODE_ENV` other than `production`, e.g. `bun run dev`) no order is sent: reads (assets, clock, prices, order lookups) still hit Alpaca, but the buy is stubbed to fill at once at the screening price, with an order id starting `stub-`. Only a filled buy is posted to `trades`, with the fill quantity and price; an order Alpaca refuses or that doesn't fill is `skipped_order`. If an earlier attempt already placed an order for the filing, that order is picked up instead of re-checking the price.
 3. Everything is stored in **PostgreSQL (`synradb`)** through [Drizzle ORM](https://orm.drizzle.team) on postgres.js. Bought trades go to `stocks` / `insiders` / `trades`; `insiders` also gets a row, with its stored step-4 verdict, for every insider step 4 classifies (the Eraser ERD "Insider Trade Tracking", extended with the insider-criteria evidence, market cap, screening price and the Alpaca order and fill). Alongside them: `filings` (every screened filing and its reason), `insider_analyses` (every step-4 evaluation), `poll_runs`, a `kv` table for the feed cursor, and the `form4_cache` / `issuer_cache` SEC response caches. Trades posted before the rule replaced Grok keep Grok's verdict, with `classifier` set to the model name; trades posted before market orders replaced limit orders keep their (possibly unfilled) limit order.
 
 ## Running
@@ -25,7 +25,7 @@ bun install
 make start             # starts the synradb Postgres container in OrbStack, applies migrations, then runs the dev server
 ```
 
-`make help` lists the other targets (`make db`, `make migrate`, `make generate`, `make studio`, `make db-reset`, `make stop`, `make psql`, `make poll ARGS="--limit 25"`, `make serve` for a production build). Without make: `bun run db:up`, `bun run db:migrate`, then `bun run dev`.
+`make help` lists the other targets (`make db`, `make migrate`, `make generate`, `make studio`, `make db-reset`, `make stop`, `make psql`, `make build`). Without make: `bun run db:up`, `bun run db:migrate`, then `bun run dev`.
 
 Postgres runs from `docker-compose.yml` as container `synradb` (database `synradb`, user/password `synra`). Connect with `bun run db:psql`, `postgres://synra:synra@localhost:5433/synradb?sslmode=disable`, or via OrbStack's domain `synradb.orb.local:5432`.
 
@@ -35,18 +35,15 @@ The schema is declared once in `lib/db/schema.ts`. To add or change a table:
 
 1. Edit `lib/db/schema.ts`.
 2. `bun run db:generate` — drizzle-kit diffs the schema against `drizzle/` and writes a new numbered `.sql` migration (commit it).
-3. `bun run db:migrate` — applies pending migrations (also runs on `make start` / `make serve`).
+3. `bun run db:migrate` — applies pending migrations (also runs on `make start`).
 
 `bun run db:studio` opens Drizzle Studio to browse the data.
 
-Open http://localhost:3000. The dashboard shows signal tiles, the posted trades (click a row for the insider's month-by-year trading grid and the trades behind it), the full pipeline log, and run history. The page is read-only: runs only start when the cron endpoint below is called, or from `bun run poll`. Nothing polls on its own.
+Open http://localhost:3000. The dashboard shows signal tiles, the posted trades (click a row for the insider's month-by-year trading grid and the trades behind it), the full pipeline log, and run history. The page is read-only: runs only start when the cron endpoint below is called. Nothing polls on its own. To run one locally, with the dev server up: `curl -H "Authorization: Bearer $CRON_SECRET" localhost:3000/api/cron/poll`. To rescan, delete the cursor first: `DELETE FROM kv WHERE key = 'feed_cursor_updated'` (the next run looks back `INITIAL_LOOKBACK_HOURS`).
 
 Other commands:
 
 ```bash
-bun run poll                  # one-off delta run from the CLI
-bun run poll --limit 25       # process at most 25 filings
-bun run poll --reset --lookback 24   # clear the cursor and re-scan the last 24h
 bun run build && bun run start
 ```
 

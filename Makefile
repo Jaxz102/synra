@@ -4,7 +4,7 @@ COMPOSE := docker compose
 DB := synradb
 
 .DEFAULT_GOAL := help
-.PHONY: help start dev db db-wait db-reset migrate generate studio stop down restart logs psql poll build serve typecheck
+.PHONY: help start dev db db-wait db-reset migrate generate studio stop down restart logs psql build typecheck
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -50,14 +50,8 @@ logs: ## Tail Postgres logs
 psql: ## Open psql inside the synradb container
 	docker exec -it $(DB) psql -U synra -d synradb
 
-poll: ## Run one poll from the CLI (pass ARGS="--limit 25")
-	bun run scripts/poll.ts $(ARGS)
-
 build: node_modules ## Production build
 	bun run build
-
-serve: build migrate ## Production server with the db
-	bun run start
 
 typecheck: node_modules ## Type-check the project
 	bun run typecheck

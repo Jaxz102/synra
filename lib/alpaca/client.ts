@@ -48,6 +48,15 @@ export function alpacaConfigured(): boolean {
   return Boolean(env.alpacaKey && env.alpacaSecret)
 }
 
+/**
+ * Only production (`NODE_ENV=production`) sends write requests (orders, cancels) to Alpaca. Elsewhere
+ * reads still go through, and writes are answered by stubs: a buy fills instantly at the screening price.
+ */
+const writesStubbed = !env.isProduction
+
+/** Order ids of stubbed buys start with this, so local trades are easy to tell apart. */
+export const STUB_ORDER_PREFIX = "stub-"
+
 async function request<T>(
   method: "GET" | "POST" | "DELETE",
   path: string,
@@ -56,6 +65,9 @@ async function request<T>(
 ): Promise<T> {
   if (!alpacaConfigured())
     throw new AlpacaError("ALPACA_KEY / ALPACA_SECRET are not set", 0)
+  // Backstop for the stubs below: a write that reaches here outside production is a bug.
+  if (method !== "GET" && writesStubbed)
+    throw new Error(`Alpaca ${method} ${path} blocked outside production`)
   const res = await fetch(`${baseUrl}${path}`, {
     method,
     headers: {
@@ -128,8 +140,10 @@ export const getClock = () => request<MarketClock>("GET", "/v2/clock")
 export const getOrder = (id: string) =>
   request<AlpacaOrder>("GET", `/v2/orders/${encodeURIComponent(id)}`)
 
-export const cancelOrder = (id: string) =>
-  request<null>("DELETE", `/v2/orders/${encodeURIComponent(id)}`)
+export const cancelOrder = async (id: string): Promise<null> =>
+  writesStubbed
+    ? null
+    : request<null>("DELETE", `/v2/orders/${encodeURIComponent(id)}`)
 
 /** The order placed under `clientOrderId`, or null when there is none. */
 export async function findOrderByClientId(
@@ -168,19 +182,46 @@ export async function placeMarketBuy(req: BuyRequest): Promise<AlpacaOrder> {
     time_in_force: "day" as const,
     client_order_id: req.clientOrderId.slice(0, 128),
   }
-  if (asset.fractionable)
-    return request<AlpacaOrder>("POST", "/v2/orders", {
-      ...base,
-      notional: req.notional.toFixed(2),
-    })
-  const qty = Math.floor(req.notional / req.price)
-  if (qty < 1)
-    throw new AlpacaError(
-      `${asset.symbol} is not fractionable and $${req.notional} buys less than one share at $${req.price}`,
-      422
-    )
-  return request<AlpacaOrder>("POST", "/v2/orders", {
-    ...base,
-    qty: String(qty),
-  })
+  let order: OrderBody
+  if (asset.fractionable) {
+    order = { ...base, notional: req.notional.toFixed(2) }
+  } else {
+    const qty = Math.floor(req.notional / req.price)
+    if (qty < 1)
+      throw new AlpacaError(
+        `${asset.symbol} is not fractionable and $${req.notional} buys less than one share at $${req.price}`,
+        422
+      )
+    order = { ...base, qty: String(qty) }
+  }
+  return writesStubbed
+    ? stubFill(order, req.price)
+    : request<AlpacaOrder>("POST", "/v2/orders", order)
+}
+
+type OrderBody = Pick<
+  AlpacaOrder,
+  "symbol" | "side" | "type" | "time_in_force" | "client_order_id"
+> & { notional?: string; qty?: string }
+
+/** What Alpaca would return for an order that filled at once at `price`. Nothing is sent. */
+function stubFill(order: OrderBody, price: number): AlpacaOrder {
+  const now = new Date().toISOString()
+  const qty = order.qty ? Number(order.qty) : Number(order.notional) / price
+  console.log(
+    `[synra] alpaca: stubbed buy of ${order.symbol} (not production, no order sent)`
+  )
+  return {
+    ...order,
+    id: `${STUB_ORDER_PREFIX}${crypto.randomUUID()}`,
+    status: "filled",
+    notional: order.notional ?? null,
+    qty: order.qty ?? null,
+    limit_price: null,
+    filled_qty: qty.toFixed(9).replace(/\.?0+$/, ""),
+    filled_avg_price: String(price),
+    filled_at: now,
+    created_at: now,
+    submitted_at: now,
+  }
 }

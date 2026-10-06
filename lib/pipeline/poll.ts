@@ -62,7 +62,8 @@ export const DATA_VERSION_KEY = "dashboard_version"
 
 const bumpDataVersion = () => kvSet(DATA_VERSION_KEY, new Date().toISOString())
 
-export type PollTrigger = "schedule" | "manual" | "cli"
+/** Runs only start from GET /api/cron/poll. */
+export type PollTrigger = "schedule"
 
 /** Keys match the `skipped_*` filing statuses so a status can bump its own counter. */
 export interface RunCounters {

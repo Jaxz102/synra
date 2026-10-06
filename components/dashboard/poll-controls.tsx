@@ -11,7 +11,7 @@ import type { PollStatus } from "@/lib/queries"
 /** How often a visible page asks whether there is new data (a few hundred bytes per check). */
 const CHECK_MS = 30_000
 
-/** Read-only poll status. Runs are triggered by GET /api/cron/poll (or `bun run poll` locally), not from the page. */
+/** Read-only poll status. Runs are triggered only by GET /api/cron/poll, not from the page. */
 export function PollControls({ status }: { status: PollStatus }) {
   const router = useRouter()
   const running = !!status.running

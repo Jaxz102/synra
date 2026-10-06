@@ -140,6 +140,7 @@ export const kv = pgTable("kv", {
 
 export const pollRuns = pgTable("poll_runs", {
   id: serial().primaryKey(),
+  // Only "schedule" (GET /api/cron/poll) is written now; "manual" and "cli" remain on older rows.
   trigger: text().$type<"schedule" | "manual" | "cli">().notNull(),
   status: text().$type<"running" | "success" | "error">().notNull(),
   startedAt: timestamp({ withTimezone: true }).notNull(),
