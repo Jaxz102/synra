@@ -113,11 +113,12 @@ export default function Page() {
 
       <footer className="text-xs text-muted-foreground">
         Screens Form 4 filings from the SEC EDGAR latest-filings feed. Keeps
-        open-market purchases outside Rule 10b5-1 plans, in NYSE or Nasdaq
-        stocks worth at least $100M, by insiders whose last three years of
-        trading show no routine calendar month, and only while the price is
-        within 2% of the insider&apos;s; each one is bought with an Alpaca paper
-        market order and posted once it fills. Not investment advice.
+        open-market purchases outside Rule 10b5-1 plans, of NYSE or Nasdaq
+        stocks above $1 and worth at least $100M, by insiders who traded in each
+        of the last three years but not in the trade&apos;s month every year,
+        whose footnotes show a normal open-market buy, and only while the price
+        is within 2% of the insider&apos;s; each one is bought with an Alpaca
+        paper market order and posted once it fills. Not investment advice.
       </footer>
     </div>
   )

@@ -20,8 +20,8 @@ const META: Record<FilingStatus, { label: string; className: string }> = {
     label: "10b5-1 plan",
     className: "border-border text-muted-foreground",
   },
-  skipped_listing: {
-    label: "Not NYSE/Nasdaq",
+  skipped_penny: {
+    label: "$1 or under",
     className: "border-border text-muted-foreground",
   },
   skipped_routine: {
@@ -29,15 +29,23 @@ const META: Record<FilingStatus, { label: string; className: string }> = {
     className: "bg-secondary text-secondary-foreground",
   },
   skipped_history: {
-    label: "Too little history (old rule)",
+    label: "Too little history",
+    className: "bg-secondary text-secondary-foreground",
+  },
+  skipped_price: {
+    label: "Price ran",
     className: "bg-secondary text-secondary-foreground",
   },
   skipped_market_cap: {
     label: "Under $100M",
     className: "bg-secondary text-secondary-foreground",
   },
-  skipped_price: {
-    label: "Price ran",
+  skipped_listing: {
+    label: "Not NYSE/Nasdaq",
+    className: "border-border text-muted-foreground",
+  },
+  skipped_footnotes: {
+    label: "Not open market",
     className: "bg-secondary text-secondary-foreground",
   },
   skipped_order: {

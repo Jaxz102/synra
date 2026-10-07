@@ -11,24 +11,29 @@ export * from "@/lib/db/schema"
 export type Db = ReturnType<typeof create>
 
 declare global {
-  var __synraDb: Db | undefined
+  var __synraPg: postgres.Sql | undefined
 }
 
 function create() {
   if (!env.databaseUrl) throw new Error("DATABASE_URL is not set")
 
-  const client = postgres(env.databaseUrl, {
+  const client = (globalThis.__synraPg ??= postgres(env.databaseUrl, {
     max: 8,
     connect_timeout: 10,
     idle_timeout: 60,
     prepare: false,
-  })
+  }))
   return drizzle({ client, schema, casing: "snake_case" })
 }
 
-/** Drizzle over postgres.js. One pool per process, survives Next dev reloads. */
+let db: Db | undefined
+
+/**
+ * Drizzle over postgres.js. The pool is one per process and survives Next dev reloads; the Drizzle instance is rebuilt
+ * when this module reloads, since its snake_case column cache would otherwise miss columns added to the schema.
+ */
 export function getDb(): Db {
-  return (globalThis.__synraDb ??= create())
+  return (db ??= create())
 }
 
 export async function kvGet(key: string): Promise<string | null> {

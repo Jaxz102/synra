@@ -11,6 +11,7 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core"
 
+import type { FootnoteReview } from "@/lib/pipeline/footnotes"
 import type {
   HistoryTrade,
   InsiderEvaluation,
@@ -109,6 +110,8 @@ export const trades = pgTable(
     // Screening inputs: Finnhub market cap and the Alpaca price step 6 compared with the filing.
     marketCap: doublePrecision(),
     quotePrice: numeric({ precision: 18, scale: 4, mode: "number" }),
+    // Step 7 footnote review (lib/pipeline/footnotes.ts); null on rows posted before the step existed.
+    footnoteReview: jsonb().$type<FootnoteReview>(),
     // Alpaca paper market buy (see lib/alpaca/client.ts). The limit price and error are only set on older rows.
     alpacaOrderId: text(),
     alpacaClientOrderId: text(),
@@ -151,15 +154,17 @@ export const pollRuns = pgTable("poll_runs", {
   newFilings: integer().notNull().default(0),
   skipped10b51: integer("skipped_10b5_1").notNull().default(0),
   skippedSell: integer().notNull().default(0),
+  skippedPenny: integer().notNull().default(0),
   skippedNotPurchase: integer().notNull().default(0),
   skippedListing: integer().notNull().default(0),
   skippedRoutine: integer().notNull().default(0),
-  /** Older runs only: the any-month rule skipped insiders without a trade in each of the three years. */
+  /** Insiders without an open-market trade in each of the three preceding years. */
   skippedHistory: integer().notNull().default(0),
   skippedMarketCap: integer().notNull().default(0),
   skippedPrice: integer().notNull().default(0),
+  skippedFootnotes: integer().notNull().default(0),
   skippedOrder: integer().notNull().default(0),
-  /** Filings that passed steps 1-5 while the market was closed; left queued for a later run. */
+  /** Filings that passed steps 1-4 (1-5 on older runs) while the market was closed; left queued for a later run. */
   deferred: integer().notNull().default(0),
   posted: integer().notNull().default(0),
   errors: integer().notNull().default(0),
@@ -172,11 +177,13 @@ export type FilingStatus =
   | "skipped_sell"
   | "skipped_not_purchase"
   | "skipped_10b5_1"
-  | "skipped_listing"
+  | "skipped_penny"
   | "skipped_routine"
-  | "skipped_history" // older filings only (any-month rule)
-  | "skipped_market_cap"
+  | "skipped_history"
   | "skipped_price"
+  | "skipped_market_cap"
+  | "skipped_listing"
+  | "skipped_footnotes"
   | "skipped_order"
   | "posted"
   | "error"
@@ -204,6 +211,8 @@ export const filings = pgTable(
     indexUrl: text(),
     xmlUrl: text(),
     form: jsonb().$type<Form4>(),
+    /** Step 7 footnote review, kept for every filing that reached it. */
+    footnoteReview: jsonb().$type<FootnoteReview>(),
   },
   (t) => [
     index("filings_status_idx").on(t.status),

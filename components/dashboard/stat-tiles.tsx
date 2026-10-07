@@ -59,16 +59,21 @@ export function StatTiles({ stats }: { stats: Stats }) {
         sub="Pre-scheduled trades"
       />
       <Tile
-        label="Skipped · routine insiders"
-        value={fmtInt(stats.routine)}
-        sub="Traded in the same month 3 years running"
+        label="Skipped · insider criteria"
+        value={fmtInt(stats.routine + stats.history)}
+        sub={`${fmtInt(stats.routine)} routine · ${fmtInt(stats.history)} too little history`}
       />
       <Tile
-        label="Skipped · listing, cap, price"
+        label="Skipped · price, cap, listing, footnotes"
         value={fmtInt(
-          stats.listing + stats.marketCap + stats.price + stats.order
+          stats.penny +
+            stats.price +
+            stats.marketCap +
+            stats.listing +
+            stats.footnotes +
+            stats.order
         )}
-        sub={`${fmtInt(stats.listing)} not NYSE/Nasdaq · ${fmtInt(stats.marketCap)} under $100M · ${fmtInt(stats.price)} price ran${stats.order ? ` · ${fmtInt(stats.order)} not filled` : ""}`}
+        sub={`${fmtInt(stats.penny)} $1 or under · ${fmtInt(stats.price)} price ran · ${fmtInt(stats.marketCap)} under $100M · ${fmtInt(stats.listing)} not NYSE/Nasdaq · ${fmtInt(stats.footnotes)} not open market${stats.order ? ` · ${fmtInt(stats.order)} not filled` : ""}`}
       />
     </div>
   )

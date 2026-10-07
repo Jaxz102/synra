@@ -74,4 +74,8 @@ export const env = {
   alpacaOrderNotional: num(process.env.ALPACA_ORDER_NOTIONAL, 150),
   /** Finnhub key for market capitalization (free tier: 60 requests/minute). Required. */
   finnhubApiKey: process.env.FINNHUB_API_KEY?.trim() ?? "",
+  /** xAI key for the step 7 footnote review. Required. */
+  xaiApiKey: process.env.XAI_API_KEY?.trim() ?? "",
+  /** Grok model that gives the step 7 footnote verdict. */
+  xaiModel: process.env.XAI_MODEL?.trim() || "grok-4.7",
 }

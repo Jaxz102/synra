@@ -30,6 +30,7 @@ import { DeadlineExceeded, remainingMs, withDeadline } from "@/lib/deadline"
 import { env } from "@/lib/env"
 import { getMarketCap } from "@/lib/finnhub/client"
 import { fmtMoney, fmtMoneyCompact } from "@/lib/format"
+import { type FootnoteReview, reviewFootnotes } from "@/lib/pipeline/footnotes"
 import {
   CLASSIFIER,
   type InsiderEvaluation,
@@ -72,10 +73,13 @@ export interface RunCounters {
   skipped_sell: number
   skipped_not_purchase: number
   skipped_10b5_1: number
-  skipped_listing: number
+  skipped_penny: number
   skipped_routine: number
-  skipped_market_cap: number
+  skipped_history: number
   skipped_price: number
+  skipped_market_cap: number
+  skipped_listing: number
+  skipped_footnotes: number
   skipped_order: number
   deferred: number
   posted: number
@@ -126,11 +130,13 @@ const STALE_RUN_MS = 15 * 60_000
 const LOCK_GRACE_MS = 2 * 60_000
 
 /* Screening thresholds from the "SEC Filtering Pipeline" Linear doc. */
-const LISTED_EXCHANGES = ["NYSE", "NASDAQ"]
-const MIN_MARKET_CAP = 100_000_000
-/** Step 6 fails when the stock now trades more than this fraction above the filing's purchase price. */
+/** Step 3 fails unless both the filing's purchase price and the current price are above this. */
+const MIN_PRICE = 1
+/** Step 5 fails when the stock now trades more than this fraction above the filing's purchase price. */
 const MAX_PRICE_PREMIUM = 0.02
-/** How long step 7 waits for a market buy to fill before cancelling it. */
+const MIN_MARKET_CAP = 100_000_000
+const LISTED_EXCHANGES = ["NYSE", "NASDAQ"]
+/** How long step 8 waits for a market buy to fill before cancelling it. */
 const FILL_TIMEOUT_MS = 30_000
 /** Order statuses Alpaca will not move on from (https://docs.alpaca.markets/docs/orders-at-alpaca). */
 const FINAL_ORDER_STATUSES = new Set([
@@ -191,7 +197,8 @@ async function finishFiling(
   form: Form4 | null,
   runId: number,
   /** False when the filing is only deferred, so waiting for the market does not use up its retries. */
-  countAttempt = true
+  countAttempt = true,
+  footnoteReview: FootnoteReview | null = null
 ) {
   const owner = form?.owners[0]
   await getDb()
@@ -213,6 +220,7 @@ async function finishFiling(
       periodOfReport: keep(filings.periodOfReport, form?.periodOfReport),
       xmlUrl: keep(filings.xmlUrl, form?.xmlUrl),
       form: form ?? sql`${filings.form}`,
+      footnoteReview: footnoteReview ?? sql`${filings.footnoteReview}`,
     })
     .where(eq(filings.accession, accession))
 }
@@ -223,7 +231,11 @@ async function postTrade(
   trade: TradeSummary,
   insider: InsiderEvaluation,
   asset: AlpacaAsset,
-  screen: { marketCap: number; quotePrice: number | null },
+  screen: {
+    marketCap: number | null
+    quotePrice: number | null
+    footnoteReview: FootnoteReview | null
+  },
   filedDate: string | null,
   order: AlpacaOrder
 ) {
@@ -260,6 +272,7 @@ async function postTrade(
     filingUrl: form.indexUrl,
     marketCap: screen.marketCap,
     quotePrice: screen.quotePrice,
+    footnoteReview: screen.footnoteReview,
     alpacaOrderId: order.id,
     alpacaClientOrderId: order.client_order_id,
     alpacaOrderStatus: order.status,
@@ -305,7 +318,7 @@ async function postTrade(
 }
 
 /**
- * Step 7: a day market buy of $ALPACA_ORDER_NOTIONAL. The accession number doubles as Alpaca's client_order_id,
+ * Step 8: a day market buy of $ALPACA_ORDER_NOTIONAL. The accession number doubles as Alpaca's client_order_id,
  * so a filing can never be bought twice. Returns null when Alpaca refuses the order (not fractionable and too
  * expensive for one share, insufficient buying power, …), which is final for the filing.
  */
@@ -384,10 +397,23 @@ async function findAsset(ticker: string | null): Promise<AlpacaAsset | null> {
 
 const fmtPremium = (p: number) => `${p >= 0 ? "+" : ""}${(p * 100).toFixed(1)}%`
 
+/** The latest Alpaca trade price, or null when the feed has none for the symbol. */
+async function latestPrice(symbol: string): Promise<number | null> {
+  try {
+    return (await getLatestTrade(symbol)).price
+  } catch (err) {
+    if (err instanceof AlpacaError && err.status === 404) return null
+    throw err
+  }
+}
+
+const isListed = (asset: AlpacaAsset) =>
+  asset.class === "us_equity" && LISTED_EXCHANGES.includes(asset.exchange)
+
 /**
- * Runs the screening steps of the "SEC Filtering Pipeline" Linear doc in order. The first step a filing fails is
- * recorded as its status; a filing that passes steps 1-6 is bought (step 7) and posted once the buy fills.
- * Filings that pass steps 1-5 while the market is closed stay queued ("deferred") for a later run.
+ * Runs the "Criteria for File Pass" steps of the "SEC Filtering Pipeline" Linear doc in order. The first step a
+ * filing fails is recorded as its status; a filing that passes steps 1-7 is bought (step 8) and posted once the buy
+ * fills. Filings that pass steps 1-4 while the market is closed stay queued ("deferred") for a later run.
  */
 async function evaluateFiling(
   f: FeedFiling,
@@ -398,8 +424,17 @@ async function evaluateFiling(
   const form = await fetchForm4(f.pathCik, f.accession)
   await cacheForm4(form)
   const label = `${form.issuer.ticker ?? form.issuer.name} / ${form.owners[0]?.name ?? "?"} (${f.accession})`
+  let footnoteReview: FootnoteReview | null = null
   const skip = async (status: FilingStatus, reason: string) => {
-    await finishFiling(f.accession, status, reason, form, runId)
+    await finishFiling(
+      f.accession,
+      status,
+      reason,
+      form,
+      runId,
+      true,
+      footnoteReview
+    )
     if (status !== "skipped_not_purchase") log(`  ${reason} → skip ${label}`)
     return status
   }
@@ -434,7 +469,8 @@ async function evaluateFiling(
   if (form.aff10b5One)
     return skip("skipped_10b5_1", "Rule 10b5-1 checkbox is checked")
 
-  // Step 3: the security bought must be a stock listed on NYSE or Nasdaq.
+  // Steps 3-7 screen the stock that was bought, so it has to be identified first: a purchase of something other than
+  // a stock, or a ticker Alpaca doesn't know, has no price to screen and fails the listing check (step 7) here.
   const stockBuys = buys.filter((t) => isCommonStock(t.securityTitle))
   if (stockBuys.length === 0)
     return skip(
@@ -447,47 +483,54 @@ async function evaluateFiling(
       "skipped_listing",
       `Ticker "${form.issuer.ticker ?? ""}" is not listed on Alpaca`
     )
-  if (asset.class !== "us_equity" || !LISTED_EXCHANGES.includes(asset.exchange))
-    return skip(
-      "skipped_listing",
-      `${asset.symbol} trades on ${asset.exchange}, not NYSE or Nasdaq`
-    )
   const trade = summarizeTrade(form, stockBuys)
 
-  // Step 4: the insider must be an opportunistic trader (lib/pipeline/insiders.ts).
+  // Step 3: the stock must trade above $1, both at the filing's purchase price and now.
+  if (trade.avgPrice === null)
+    return skip("skipped_penny", "Filing reports no purchase price")
+  if (trade.avgPrice <= MIN_PRICE)
+    return skip(
+      "skipped_penny",
+      `Filing price ${fmtMoney(trade.avgPrice, 2)} is not above ${fmtMoney(MIN_PRICE, 2)}`
+    )
+  const current = await latestPrice(asset.symbol)
+  if (current === null)
+    return isListed(asset)
+      ? skip("skipped_penny", `No current price for ${asset.symbol}`)
+      : skip(
+          "skipped_listing",
+          `${asset.symbol} trades on ${asset.exchange}, not NYSE or Nasdaq`
+        )
+  if (current <= MIN_PRICE)
+    return skip(
+      "skipped_penny",
+      `Current price ${fmtMoney(current, 2)} is not above ${fmtMoney(MIN_PRICE, 2)}`
+    )
+
+  // Step 4: the insider must have traded in each of the three preceding years and be opportunistic
+  // (lib/pipeline/insider-criteria.ts).
   const tradeDate = trade.date ?? f.filedDate
   if (!tradeDate) throw new Error("Filing has no trade or filing date")
   const insider = await insiderVerdict(form, tradeDate)
+  if (insider.verdict === "ineligible")
+    return skip("skipped_history", `Too little history: ${insider.summary}`)
   if (insider.verdict === "routine")
     return skip("skipped_routine", `Routine trader: ${insider.summary}`)
 
-  // Step 5: market capitalization of at least $100M.
-  const marketCap = await getMarketCap(asset.symbol)
-  if (marketCap === null)
-    return skip(
-      "skipped_market_cap",
-      `Finnhub has no market cap for ${asset.symbol}`
-    )
-  if (marketCap < MIN_MARKET_CAP)
-    return skip(
-      "skipped_market_cap",
-      `Market cap ${fmtMoneyCompact(marketCap)} is below ${fmtMoneyCompact(MIN_MARKET_CAP)}`
-    )
-
-  if (trade.avgPrice === null)
-    return skip("skipped_price", "Filing reports no purchase price")
-
-  // An earlier attempt may already have bought; pick that order up instead of screening the price again.
+  // An earlier attempt may already have passed steps 5-7 and bought; pick that order up instead of screening again.
   let order = await findOrderByClientId(f.accession)
+  let marketCap: number | null
   let quotePrice: number | null = null
   let premium: number | null = null
-  if (!order) {
-    // Steps 6-7 need the market open: the price check is only meaningful if the market buy fills right after it.
+  if (order) {
+    marketCap = await getMarketCap(asset.symbol)
+  } else {
+    // Steps 5-8 need the market open: the price check is only meaningful if the market buy fills right after it.
     if (!(await marketOpen())) {
       await finishFiling(
         f.accession,
         "queued",
-        "Passed steps 1-5 while the market was closed; retried on a later run",
+        "Passed steps 1-4 while the market was closed; retried on a later run",
         form,
         runId,
         false
@@ -496,24 +539,45 @@ async function evaluateFiling(
       return "deferred"
     }
 
-    // Step 6: the current price must be at most 2% above what the insider paid.
-    let quote: Awaited<ReturnType<typeof getLatestTrade>>
-    try {
-      quote = await getLatestTrade(asset.symbol)
-    } catch (err) {
-      if (!(err instanceof AlpacaError && err.status === 404)) throw err
-      return skip("skipped_price", `No current price: ${err.message}`)
-    }
-    quotePrice = quote.price
-    premium = quote.price / trade.avgPrice - 1
+    // Step 5: the current price must be at most 2% above what the insider paid.
+    quotePrice = await latestPrice(asset.symbol)
+    if (quotePrice === null)
+      return skip("skipped_price", `No current price for ${asset.symbol}`)
+    premium = quotePrice / trade.avgPrice - 1
     if (premium > MAX_PRICE_PREMIUM)
       return skip(
         "skipped_price",
-        `Current ${fmtMoney(quote.price, 2)} is ${fmtPremium(premium)} vs the filing's ${fmtMoney(trade.avgPrice, 2)} (max +${MAX_PRICE_PREMIUM * 100}%)`
+        `Current ${fmtMoney(quotePrice, 2)} is ${fmtPremium(premium)} vs the filing's ${fmtMoney(trade.avgPrice, 2)} (max +${MAX_PRICE_PREMIUM * 100}%)`
       )
 
-    // Step 7: market buy.
-    const placed = await placeBuy(f.accession, asset, quote.price)
+    // Step 6: market capitalization of at least $100M.
+    marketCap = await getMarketCap(asset.symbol)
+    if (marketCap === null)
+      return skip(
+        "skipped_market_cap",
+        `Finnhub has no market cap for ${asset.symbol}`
+      )
+    if (marketCap < MIN_MARKET_CAP)
+      return skip(
+        "skipped_market_cap",
+        `Market cap ${fmtMoneyCompact(marketCap)} is below ${fmtMoneyCompact(MIN_MARKET_CAP)}`
+      )
+
+    // Step 7: a NYSE or Nasdaq stock, bought in a normal open-market purchase per the footnotes (keyword rules + Grok).
+    if (!isListed(asset))
+      return skip(
+        "skipped_listing",
+        `${asset.symbol} trades on ${asset.exchange}, not NYSE or Nasdaq`
+      )
+    footnoteReview = await reviewFootnotes(form, stockBuys)
+    if (!footnoteReview.openMarket)
+      return skip(
+        "skipped_footnotes",
+        `Not a normal open-market purchase (${footnoteReview.category}): ${footnoteReview.reason}`
+      )
+
+    // Step 8: market buy.
+    const placed = await placeBuy(f.accession, asset, quotePrice)
     if ("refused" in placed)
       return skip(
         "skipped_order",
@@ -536,16 +600,18 @@ async function evaluateFiling(
     trade,
     insider,
     asset,
-    { marketCap, quotePrice },
+    { marketCap, quotePrice, footnoteReview },
     f.filedDate,
     order
   )
   await finishFiling(
     f.accession,
     "posted",
-    `Opportunistic: ${insider.summary} Cap ${fmtMoneyCompact(marketCap)}, ${premium === null ? "" : `price ${fmtMoney(quotePrice, 2)} (${fmtPremium(premium)} vs filing), `}bought ${filledQty} @ ${fmtMoney(fill, 2)}.`,
+    `Opportunistic: ${insider.summary} ${premium === null ? "" : `Price ${fmtMoney(quotePrice, 2)} (${fmtPremium(premium)} vs filing), `}cap ${fmtMoneyCompact(marketCap)}, ${footnoteReview ? "footnotes: open market, " : ""}bought ${filledQty} @ ${fmtMoney(fill, 2)}.`,
     form,
-    runId
+    runId,
+    true,
+    footnoteReview
   )
   log(
     `  POSTED ${label}: ${trade.shares.toLocaleString()} sh ≈ $${(trade.value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
@@ -629,10 +695,13 @@ async function poll(
     skipped_sell: 0,
     skipped_not_purchase: 0,
     skipped_10b5_1: 0,
-    skipped_listing: 0,
+    skipped_penny: 0,
     skipped_routine: 0,
-    skipped_market_cap: 0,
+    skipped_history: 0,
     skipped_price: 0,
+    skipped_market_cap: 0,
+    skipped_listing: 0,
+    skipped_footnotes: 0,
     skipped_order: 0,
     deferred: 0,
     posted: 0,
@@ -655,10 +724,13 @@ async function poll(
         skipped10b51: counters.skipped_10b5_1,
         skippedSell: counters.skipped_sell,
         skippedNotPurchase: counters.skipped_not_purchase,
-        skippedListing: counters.skipped_listing,
+        skippedPenny: counters.skipped_penny,
         skippedRoutine: counters.skipped_routine,
-        skippedMarketCap: counters.skipped_market_cap,
+        skippedHistory: counters.skipped_history,
         skippedPrice: counters.skipped_price,
+        skippedMarketCap: counters.skipped_market_cap,
+        skippedListing: counters.skipped_listing,
+        skippedFootnotes: counters.skipped_footnotes,
         skippedOrder: counters.skipped_order,
         deferred: counters.deferred,
         posted: counters.posted,
@@ -667,9 +739,9 @@ async function poll(
       .where(eq(pollRuns.id, runId))
 
   try {
-    if (!alpacaConfigured() || !env.finnhubApiKey)
+    if (!alpacaConfigured() || !env.finnhubApiKey || !env.xaiApiKey)
       throw new Error(
-        "ALPACA_KEY, ALPACA_SECRET and FINNHUB_API_KEY must be set"
+        "ALPACA_KEY, ALPACA_SECRET, FINNHUB_API_KEY and XAI_API_KEY must be set"
       )
     await kvSet(LAST_RUN_KEY, startedAt)
     const lookbackHours = opts.lookbackHours ?? env.initialLookbackHours
@@ -787,7 +859,7 @@ async function poll(
       maxUpdated > 0 ? new Date(maxUpdated).toISOString() : cursorBefore
     await persist("success", undefined, cursorAfter)
     log(
-      `run #${runId} done: posted ${counters.posted}, sells ${counters.skipped_sell}, other ${counters.skipped_not_purchase}, 10b5-1 ${counters.skipped_10b5_1}, listing ${counters.skipped_listing}, routine ${counters.skipped_routine}, market cap ${counters.skipped_market_cap}, price ${counters.skipped_price}, order ${counters.skipped_order}, deferred ${counters.deferred}, errors ${counters.errors}`
+      `run #${runId} done: posted ${counters.posted}, sells ${counters.skipped_sell}, other ${counters.skipped_not_purchase}, 10b5-1 ${counters.skipped_10b5_1}, under $1 ${counters.skipped_penny}, routine ${counters.skipped_routine}, history ${counters.skipped_history}, price ${counters.skipped_price}, market cap ${counters.skipped_market_cap}, listing ${counters.skipped_listing}, footnotes ${counters.skipped_footnotes}, order ${counters.skipped_order}, deferred ${counters.deferred}, errors ${counters.errors}`
     )
     return { runId, counters }
   } catch (err) {

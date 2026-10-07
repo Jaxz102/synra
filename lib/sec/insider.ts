@@ -39,21 +39,25 @@ export interface InsiderFilingRef {
   primaryDocument: string
 }
 
+/** A date range ("YYYY-MM-DD", inclusive) to list filings for. */
+export interface FilingWindow {
+  key: string
+  from: string
+  to: string
+}
+
 /**
- * The insider's Form 4s that can hold transactions dated in each of `months` ("YYYY-MM"), keyed by month. A filing's
- * transactions fall between its period of report and its filing date, so filings overlapping a month are kept.
- * `recent` holds the latest ~1000 filings; heavier filers spill into older pages, which are fetched when they reach
- * into a month.
+ * The insider's Form 4s that can hold transactions dated in each window, keyed by window. A filing's transactions
+ * fall between its period of report and its filing date, so filings overlapping a window are kept. `recent` holds the
+ * latest ~1000 filings; heavier filers spill into older pages, which are fetched when they reach into a window.
  */
 export async function listInsiderForm4s(
   ownerCik: string,
-  months: string[]
+  windows: FilingWindow[]
 ): Promise<Record<string, InsiderFilingRef[]>> {
   const subs = await secJson<Submissions>(
     `https://data.sec.gov/submissions/CIK${cikPadded(ownerCik)}.json`
   )
-  // Dates compare as strings, so day 31 closes every month.
-  const windows = months.map((m) => ({ m, from: `${m}-01`, to: `${m}-31` }))
   const earliest = windows.map((w) => w.from).sort()[0]
   const pages = [subs.filings.recent]
   for (const f of subs.filings.files ?? [])
@@ -64,7 +68,7 @@ export async function listInsiderForm4s(
         )
       )
   const out = Object.fromEntries(
-    months.map((m) => [m, [] as InsiderFilingRef[]])
+    windows.map((w) => [w.key, [] as InsiderFilingRef[]])
   )
   for (const r of pages) {
     for (let i = 0; i < r.accessionNumber.length; i++) {
@@ -73,7 +77,7 @@ export async function listInsiderForm4s(
       const filingDate = r.filingDate[i]
       for (const w of windows)
         if ((reportDate ?? filingDate) <= w.to && filingDate >= w.from)
-          out[w.m].push({
+          out[w.key].push({
             accession: r.accessionNumber[i],
             filingDate,
             reportDate,

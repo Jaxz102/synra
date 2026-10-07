@@ -47,10 +47,13 @@ export function RunsTable({ runs }: { runs: Run[] }) {
             <TableHead className="text-right">Sales</TableHead>
             <TableHead className="text-right">Other</TableHead>
             <TableHead className="text-right">10b5-1</TableHead>
-            <TableHead className="text-right">Listing</TableHead>
+            <TableHead className="text-right">≤ $1</TableHead>
             <TableHead className="text-right">Routine</TableHead>
-            <TableHead className="text-right">Mkt cap</TableHead>
+            <TableHead className="text-right">History</TableHead>
             <TableHead className="text-right">Price</TableHead>
+            <TableHead className="text-right">Mkt cap</TableHead>
+            <TableHead className="text-right">Listing</TableHead>
+            <TableHead className="text-right">Footnotes</TableHead>
             <TableHead className="text-right">Not filled</TableHead>
             <TableHead className="text-right">Deferred</TableHead>
             <TableHead className="text-right">Errors</TableHead>
@@ -92,10 +95,13 @@ export function RunsTable({ runs }: { runs: Run[] }) {
                 r.skippedSell,
                 r.skippedNotPurchase,
                 r.skipped10b51,
-                r.skippedListing,
+                r.skippedPenny,
                 r.skippedRoutine,
-                r.skippedMarketCap,
+                r.skippedHistory,
                 r.skippedPrice,
+                r.skippedMarketCap,
+                r.skippedListing,
+                r.skippedFootnotes,
                 r.skippedOrder,
                 r.deferred,
               ].map((n, i) => (

@@ -80,6 +80,7 @@ export function TradeDialog({
   const t = trade
   const detail = useTradeDetail(t?.id)
   const prior = detail.data?.history?.trades ?? []
+  const review = detail.data?.footnoteReview
   const premium =
     t?.quotePrice && t.pricePerShare ? t.quotePrice / t.pricePerShare - 1 : null
   return (
@@ -148,6 +149,36 @@ export function TradeDialog({
                 <p className="text-sm text-muted-foreground">{t.reasoning}</p>
               )}
             </div>
+
+            {review && (
+              <>
+                <Separator />
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className="border-transparent bg-primary/15 text-primary dark:bg-primary/25 dark:text-primary-foreground"
+                    >
+                      Open-market purchase
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      footnotes · {review.model}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {review.reason}
+                  </p>
+                  {review.flags.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Keyword flags:{" "}
+                      {review.flags
+                        .map((f) => `“${f.match}” (${f.source})`)
+                        .join(", ")}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
 
             <Separator />
 

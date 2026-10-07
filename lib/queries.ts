@@ -100,8 +100,11 @@ export async function listTrades(limit = 200): Promise<Trade[]> {
   }))
 }
 
-/** The trade dialog's transaction table and the insider's prior trades, loaded when the dialog opens. */
-export type TradeDetail = Pick<TradeRow, "transactions" | "history">
+/** The trade dialog's transaction table, footnote review and the insider's prior trades, loaded when the dialog opens. */
+export type TradeDetail = Pick<
+  TradeRow,
+  "transactions" | "history" | "footnoteReview"
+>
 
 /**
  * Posted trades never change after their fill, so the detail is cached per accession. `remote` keeps one entry shared
@@ -111,7 +114,11 @@ export async function getTradeDetail(id: string): Promise<TradeDetail | null> {
   "use cache: remote"
   cacheLife("days")
   const [row] = await getDb()
-    .select({ transactions: trades.transactions, history: trades.history })
+    .select({
+      transactions: trades.transactions,
+      history: trades.history,
+      footnoteReview: trades.footnoteReview,
+    })
     .from(trades)
     .where(eq(trades.id, id))
   return row ?? null
@@ -119,7 +126,7 @@ export async function getTradeDetail(id: string): Promise<TradeDetail | null> {
 
 export interface Filing extends Omit<
   FilingRow,
-  "feedUpdated" | "processedAt" | "xmlUrl" | "form"
+  "feedUpdated" | "processedAt" | "xmlUrl" | "form" | "footnoteReview"
 > {
   feedUpdated: string
   processedAt: string | null
@@ -185,10 +192,13 @@ export interface Stats {
   planned: number
   sells: number
   notPurchase: number
-  listing: number
+  penny: number
   routine: number
-  marketCap: number
+  history: number
   price: number
+  marketCap: number
+  listing: number
+  footnotes: number
   order: number
   errors: number
   pending: number
@@ -228,10 +238,13 @@ export async function getStats(): Promise<Stats> {
     planned: byStatus.get("skipped_10b5_1") ?? 0,
     sells: byStatus.get("skipped_sell") ?? 0,
     notPurchase: byStatus.get("skipped_not_purchase") ?? 0,
-    listing: byStatus.get("skipped_listing") ?? 0,
+    penny: byStatus.get("skipped_penny") ?? 0,
     routine: byStatus.get("skipped_routine") ?? 0,
-    marketCap: byStatus.get("skipped_market_cap") ?? 0,
+    history: byStatus.get("skipped_history") ?? 0,
     price: byStatus.get("skipped_price") ?? 0,
+    marketCap: byStatus.get("skipped_market_cap") ?? 0,
+    listing: byStatus.get("skipped_listing") ?? 0,
+    footnotes: byStatus.get("skipped_footnotes") ?? 0,
     order: byStatus.get("skipped_order") ?? 0,
     errors: byStatus.get("error") ?? 0,
     pending: (byStatus.get("queued") ?? 0) + (byStatus.get("processing") ?? 0),

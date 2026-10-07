@@ -89,9 +89,10 @@ async function recordAnalysis(
 }
 
 /**
- * Step 4: the insider's routine/opportunistic label. The first of their filings to reach step 4 runs the trade-month
+ * Step 4: the insider's routine/opportunistic/ineligible label. The first of their filings to reach step 4 runs the
  * lookup and stores the result on their `insiders` row; the label never changes after that, so later filings reuse
- * it without touching SEC. Every evaluation is logged to `insider_analyses`.
+ * it without touching SEC. A label stored by an older rule (another `classifier`) is recomputed once. Every
+ * evaluation is logged to `insider_analyses`.
  */
 export async function insiderVerdict(
   form: Form4,
@@ -103,7 +104,7 @@ export async function insiderVerdict(
     .select({ evaluation: insiders.traderEvaluation })
     .from(insiders)
     .where(eq(insiders.id, row.id))
-  if (stored?.evaluation) {
+  if (stored?.evaluation?.classifier === CLASSIFIER) {
     await recordAnalysis(
       db,
       form,
