@@ -20,6 +20,10 @@ const META: Record<FilingStatus, { label: string; className: string }> = {
     label: "10b5-1 plan",
     className: "border-border text-muted-foreground",
   },
+  skipped_relationship: {
+    label: "Not director/officer",
+    className: "border-border text-muted-foreground",
+  },
   skipped_penny: {
     label: "$1 or under",
     className: "border-border text-muted-foreground",

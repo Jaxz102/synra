@@ -7,7 +7,7 @@ import {
 } from "@/lib/sec/insider"
 
 /*
- * Step 4 insider criteria ("Decoding Inside Information", per the "SEC Filtering Pipeline" Linear doc):
+ * Step 5 insider criteria ("Decoding Inside Information", per the "SEC Filtering Pipeline" Linear doc):
  * - eligible: at least one open-market trade (Form 4 code P or S, non-derivative) in each of the three preceding
  *   calendar years; option exercises, other codes and trades the footnotes call private don't count,
  * - routine: an eligible insider who traded in the filing's trade month in each of those years (for an October 2026

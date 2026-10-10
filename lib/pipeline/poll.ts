@@ -73,6 +73,7 @@ export interface RunCounters {
   skipped_sell: number
   skipped_not_purchase: number
   skipped_10b5_1: number
+  skipped_relationship: number
   skipped_penny: number
   skipped_routine: number
   skipped_history: number
@@ -129,16 +130,11 @@ const STALE_RUN_MS = 15 * 60_000
 /** How long past its deadline a run's lock holds: room to finish the filing in progress and record the run. */
 const LOCK_GRACE_MS = 2 * 60_000
 
-/* Screening thresholds from the "SEC Filtering Pipeline" Linear doc. */
-/** Step 3 fails unless both the filing's purchase price and the current price are above this. */
 const MIN_PRICE = 1
-/** Step 5 fails when the stock now trades more than this fraction above the filing's purchase price. */
 const MAX_PRICE_PREMIUM = 0.02
 const MIN_MARKET_CAP = 100_000_000
 const LISTED_EXCHANGES = ["NYSE", "NASDAQ"]
-/** How long step 8 waits for a market buy to fill before cancelling it. */
 const FILL_TIMEOUT_MS = 30_000
-/** Order statuses Alpaca will not move on from (https://docs.alpaca.markets/docs/orders-at-alpaca). */
 const FINAL_ORDER_STATUSES = new Set([
   "filled",
   "canceled",
@@ -150,7 +146,6 @@ const FINAL_ORDER_STATUSES = new Set([
   "suspended",
 ])
 
-/** Queues the run's new feed filings in one insert. */
 async function insertFilings(fresh: FeedFiling[], runId: number) {
   if (!fresh.length) return
   await getDb()
@@ -173,7 +168,6 @@ async function insertFilings(fresh: FeedFiling[], runId: number) {
     .onConflictDoNothing()
 }
 
-/** Closes out runs left "running" by a process that died mid-run. */
 export async function closeStaleRuns() {
   await getDb()
     .update(pollRuns)
@@ -196,7 +190,6 @@ async function finishFiling(
   reason: string | null,
   form: Form4 | null,
   runId: number,
-  /** False when the filing is only deferred, so waiting for the market does not use up its retries. */
   countAttempt = true,
   footnoteReview: FootnoteReview | null = null
 ) {
@@ -225,7 +218,6 @@ async function finishFiling(
     .where(eq(filings.accession, accession))
 }
 
-/** Writes the filled buy as stock + insider + trade rows (the Eraser ERD) in one transaction. */
 async function postTrade(
   form: Form4,
   trade: TradeSummary,
@@ -317,11 +309,6 @@ async function postTrade(
   })
 }
 
-/**
- * Step 8: a day market buy of $ALPACA_ORDER_NOTIONAL. The accession number doubles as Alpaca's client_order_id,
- * so a filing can never be bought twice. Returns null when Alpaca refuses the order (not fractionable and too
- * expensive for one share, insufficient buying power, …), which is final for the filing.
- */
 async function placeBuy(
   accession: string,
   asset: AlpacaAsset,
@@ -336,7 +323,6 @@ async function placeBuy(
     })
   } catch (err) {
     if (!(err instanceof AlpacaError)) throw err
-    // 42210000 "client_order_id must be unique": an earlier attempt got through but we lost the response.
     if (
       err.code === 42210000 ||
       /client_order_id must be unique/i.test(err.message)
@@ -350,7 +336,6 @@ async function placeBuy(
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-/** Waits for the order to reach a final status; cancels it after FILL_TIMEOUT_MS so nothing fills later unseen. */
 async function awaitFill(
   order: AlpacaOrder,
   log: (m: string) => void
@@ -375,7 +360,6 @@ async function awaitFill(
   return order
 }
 
-/** Form 4 symbols come as "BRK-B", "brk/b", "GOOG, GOOGL" or "NONE"; Alpaca spells class shares "BRK.B". */
 function tickerCandidates(raw: string | null): string[] {
   return (raw ?? "")
     .split(/[,;\s]+/)
@@ -397,7 +381,6 @@ async function findAsset(ticker: string | null): Promise<AlpacaAsset | null> {
 
 const fmtPremium = (p: number) => `${p >= 0 ? "+" : ""}${(p * 100).toFixed(1)}%`
 
-/** The latest Alpaca trade price, or null when the feed has none for the symbol. */
 async function latestPrice(symbol: string): Promise<number | null> {
   try {
     return (await getLatestTrade(symbol)).price
@@ -410,11 +393,6 @@ async function latestPrice(symbol: string): Promise<number | null> {
 const isListed = (asset: AlpacaAsset) =>
   asset.class === "us_equity" && LISTED_EXCHANGES.includes(asset.exchange)
 
-/**
- * Runs the "Criteria for File Pass" steps of the "SEC Filtering Pipeline" Linear doc in order. The first step a
- * filing fails is recorded as its status; a filing that passes steps 1-7 is bought (step 8) and posted once the buy
- * fills. Filings that pass steps 1-4 while the market is closed stay queued ("deferred") for a later run.
- */
 async function evaluateFiling(
   f: FeedFiling,
   runId: number,
@@ -439,10 +417,10 @@ async function evaluateFiling(
     return status
   }
 
-  if (form.documentType !== "4")
+  if (form.documentType !== "4"){
     return skip("skipped_not_purchase", `Document type ${form.documentType}`)
+  }
 
-  // Step 1: open-market purchases (code P) only; sales (S) and grants, exercises, gifts etc. are out.
   const buys = openMarketPurchases(form)
   if (buys.length === 0) {
     const codes = [...new Set(form.transactions.map((t) => t.code ?? "?"))]
@@ -465,12 +443,25 @@ async function evaluateFiling(
     )
   }
 
-  // Step 2: the Rule 10b5-1 checkbox must be unchecked.
-  if (form.aff10b5One)
+  if (form.aff10b5One){
     return skip("skipped_10b5_1", "Rule 10b5-1 checkbox is checked")
+  }
 
-  // Steps 3-7 screen the stock that was bought, so it has to be identified first: a purchase of something other than
-  // a stock, or a ticker Alpaca doesn't know, has no price to screen and fails the listing check (step 7) here.
+  if (!form.owners.some((o) => o.isDirector || o.isOfficer)) {
+    const rel = [
+      ...new Set(
+        form.owners.flatMap((o) => [
+          ...(o.isTenPercentOwner ? ["10% owner"] : []),
+          ...(o.isOther ? [o.otherText || "Other"] : []),
+        ])
+      ),
+    ]
+    return skip(
+      "skipped_relationship",
+      `Reporting owner is not a director or officer (${rel.join(", ") || "no relationship checked"})`
+    )
+  }
+
   const stockBuys = buys.filter((t) => isCommonStock(t.securityTitle))
   if (stockBuys.length === 0)
     return skip(
@@ -485,7 +476,6 @@ async function evaluateFiling(
     )
   const trade = summarizeTrade(form, stockBuys)
 
-  // Step 3: the stock must trade above $1, both at the filing's purchase price and now.
   if (trade.avgPrice === null)
     return skip("skipped_penny", "Filing reports no purchase price")
   if (trade.avgPrice <= MIN_PRICE)
@@ -507,8 +497,6 @@ async function evaluateFiling(
       `Current price ${fmtMoney(current, 2)} is not above ${fmtMoney(MIN_PRICE, 2)}`
     )
 
-  // Step 4: the insider must have traded in each of the three preceding years and be opportunistic
-  // (lib/pipeline/insider-criteria.ts).
   const tradeDate = trade.date ?? f.filedDate
   if (!tradeDate) throw new Error("Filing has no trade or filing date")
   const insider = await insiderVerdict(form, tradeDate)
@@ -517,7 +505,6 @@ async function evaluateFiling(
   if (insider.verdict === "routine")
     return skip("skipped_routine", `Routine trader: ${insider.summary}`)
 
-  // An earlier attempt may already have passed steps 5-7 and bought; pick that order up instead of screening again.
   let order = await findOrderByClientId(f.accession)
   let marketCap: number | null
   let quotePrice: number | null = null
@@ -525,12 +512,11 @@ async function evaluateFiling(
   if (order) {
     marketCap = await getMarketCap(asset.symbol)
   } else {
-    // Steps 5-8 need the market open: the price check is only meaningful if the market buy fills right after it.
     if (!(await marketOpen())) {
       await finishFiling(
         f.accession,
         "queued",
-        "Passed steps 1-4 while the market was closed; retried on a later run",
+        "Passed steps 1-5 while the market was closed; retried on a later run",
         form,
         runId,
         false
@@ -539,7 +525,6 @@ async function evaluateFiling(
       return "deferred"
     }
 
-    // Step 5: the current price must be at most 2% above what the insider paid.
     quotePrice = await latestPrice(asset.symbol)
     if (quotePrice === null)
       return skip("skipped_price", `No current price for ${asset.symbol}`)
@@ -550,7 +535,7 @@ async function evaluateFiling(
         `Current ${fmtMoney(quotePrice, 2)} is ${fmtPremium(premium)} vs the filing's ${fmtMoney(trade.avgPrice, 2)} (max +${MAX_PRICE_PREMIUM * 100}%)`
       )
 
-    // Step 6: market capitalization of at least $100M.
+    // Step 7: market capitalization of at least $100M.
     marketCap = await getMarketCap(asset.symbol)
     if (marketCap === null)
       return skip(
@@ -563,7 +548,7 @@ async function evaluateFiling(
         `Market cap ${fmtMoneyCompact(marketCap)} is below ${fmtMoneyCompact(MIN_MARKET_CAP)}`
       )
 
-    // Step 7: a NYSE or Nasdaq stock, bought in a normal open-market purchase per the footnotes (keyword rules + Grok).
+
     if (!isListed(asset))
       return skip(
         "skipped_listing",
@@ -576,7 +561,6 @@ async function evaluateFiling(
         `Not a normal open-market purchase (${footnoteReview.category}): ${footnoteReview.reason}`
       )
 
-    // Step 8: market buy.
     const placed = await placeBuy(f.accession, asset, quotePrice)
     if ("refused" in placed)
       return skip(
@@ -586,7 +570,6 @@ async function evaluateFiling(
     order = placed
   }
 
-  // Only a filled buy becomes a trade.
   order = await awaitFill(order, log)
   const filledQty = Number(order.filled_qty ?? 0)
   if (!(filledQty > 0))
@@ -645,10 +628,6 @@ async function requeueErrors(): Promise<FeedFiling[]> {
   }))
 }
 
-/**
- * One poll run. With `opts.deadline`, no filing is started after it and SEC/Finnhub requests stop at it
- * (lib/deadline.ts), so a filing cut off mid-way is left queued for the next run.
- */
 export function runPoll(
   trigger: PollTrigger,
   opts: PollOptions = {}
@@ -695,6 +674,7 @@ async function poll(
     skipped_sell: 0,
     skipped_not_purchase: 0,
     skipped_10b5_1: 0,
+    skipped_relationship: 0,
     skipped_penny: 0,
     skipped_routine: 0,
     skipped_history: 0,
@@ -722,6 +702,7 @@ async function poll(
         feedEntries: counters.feed_entries,
         newFilings: counters.new_filings,
         skipped10b51: counters.skipped_10b5_1,
+        skippedRelationship: counters.skipped_relationship,
         skippedSell: counters.skipped_sell,
         skippedNotPurchase: counters.skipped_not_purchase,
         skippedPenny: counters.skipped_penny,
@@ -739,9 +720,9 @@ async function poll(
       .where(eq(pollRuns.id, runId))
 
   try {
-    if (!alpacaConfigured() || !env.finnhubApiKey || !env.xaiApiKey)
+    if (!alpacaConfigured() || !env.finnhubApiKey || !env.mimoApiKey)
       throw new Error(
-        "ALPACA_KEY, ALPACA_SECRET, FINNHUB_API_KEY and XAI_API_KEY must be set"
+        "ALPACA_KEY, ALPACA_SECRET, FINNHUB_API_KEY and MIMO_API_KEY must be set"
       )
     await kvSet(LAST_RUN_KEY, startedAt)
     const lookbackHours = opts.lookbackHours ?? env.initialLookbackHours
@@ -778,18 +759,12 @@ async function poll(
     const fresh = delta.filings.filter(
       (f) => !seen.has(f.accession) && !known.has(f.accession)
     )
-    const queue = [...retries, ...fresh].slice(
-      0,
-      opts.limit ?? Number.POSITIVE_INFINITY
-    )
+    const queue = [...retries, ...fresh].slice(0, opts.limit ?? Number.POSITIVE_INFINITY)
     counters.new_filings = fresh.length
-    log(
-      `${delta.filings.length} filings in delta, ${fresh.length} new, ${retries.length} retries, processing ${queue.length}${delta.reachedCursor ? "" : " (feed paging limit reached before cursor)"}`
-    )
+    log(`${delta.filings.length} filings in delta, ${fresh.length} new, ${retries.length} retries, processing ${queue.length}${delta.reachedCursor ? "" : " (feed paging limit reached before cursor)"}`)
     await insertFilings(fresh, runId)
     await persist("running")
 
-    // Alpaca's clock, re-read at most once a minute so a long run notices the open or close.
     let clock: { open: boolean; at: number } | null = null
     const marketOpen = async () => {
       if (!clock || Date.now() - clock.at > 60_000)
@@ -844,7 +819,7 @@ async function poll(
       processed += 1
       if (processed % 10 === 0) await persist("running")
     }
-    // If the whole delta was processed, advance the cursor to the newest entry we saw even if it was skipped.
+
     if (
       processed >= fresh.length + retries.length &&
       delta.filings.length > 0
@@ -859,7 +834,7 @@ async function poll(
       maxUpdated > 0 ? new Date(maxUpdated).toISOString() : cursorBefore
     await persist("success", undefined, cursorAfter)
     log(
-      `run #${runId} done: posted ${counters.posted}, sells ${counters.skipped_sell}, other ${counters.skipped_not_purchase}, 10b5-1 ${counters.skipped_10b5_1}, under $1 ${counters.skipped_penny}, routine ${counters.skipped_routine}, history ${counters.skipped_history}, price ${counters.skipped_price}, market cap ${counters.skipped_market_cap}, listing ${counters.skipped_listing}, footnotes ${counters.skipped_footnotes}, order ${counters.skipped_order}, deferred ${counters.deferred}, errors ${counters.errors}`
+      `run #${runId} done: posted ${counters.posted}, sells ${counters.skipped_sell}, other ${counters.skipped_not_purchase}, 10b5-1 ${counters.skipped_10b5_1}, not director/officer ${counters.skipped_relationship}, under $1 ${counters.skipped_penny}, routine ${counters.skipped_routine}, history ${counters.skipped_history}, price ${counters.skipped_price}, market cap ${counters.skipped_market_cap}, listing ${counters.skipped_listing}, footnotes ${counters.skipped_footnotes}, order ${counters.skipped_order}, deferred ${counters.deferred}, errors ${counters.errors}`
     )
     return { runId, counters }
   } catch (err) {

@@ -60,8 +60,8 @@ export function StatTiles({ stats }: { stats: Stats }) {
       />
       <Tile
         label="Skipped · insider criteria"
-        value={fmtInt(stats.routine + stats.history)}
-        sub={`${fmtInt(stats.routine)} routine · ${fmtInt(stats.history)} too little history`}
+        value={fmtInt(stats.relationship + stats.routine + stats.history)}
+        sub={`${fmtInt(stats.relationship)} not director/officer · ${fmtInt(stats.routine)} routine · ${fmtInt(stats.history)} too little history`}
       />
       <Tile
         label="Skipped · price, cap, listing, footnotes"

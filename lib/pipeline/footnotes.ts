@@ -1,11 +1,5 @@
-import { grokJson } from "@/lib/ai/grok"
+import { mimoJson } from "@/lib/ai/mimo"
 import type { Form4, Form4Transaction } from "@/lib/sec/form4"
-
-/*
- * Step 7 footnote review: the purchases must be ordinary open-market buys, not shares that reached the insider some
- * other way (a transfer, gift, private deal, offering or plan purchase). Keyword rules flag suspicious wording in the
- * purchases' footnotes and the filing's remarks; Grok reads the same text plus the flags and gives the final verdict.
- */
 
 export type FootnoteCategory =
   | "open_market"
@@ -28,11 +22,9 @@ const CATEGORIES: FootnoteCategory[] = [
   "other",
 ]
 
-/** A keyword-rule match, passed to Grok as a hint. */
 export interface FootnoteFlag {
   category: Exclude<FootnoteCategory, "open_market">
   match: string
-  /** "F1", "F2", … or "remarks". */
   source: string
 }
 
@@ -87,7 +79,6 @@ export function keywordFlags(text: string, source: string): FootnoteFlag[] {
   return out
 }
 
-/** Whether a historical trade's footnotes describe a private transaction, which the insider criteria exclude. */
 export function isPrivateTransaction(form: Form4, t: Form4Transaction) {
   return t.footnoteIds.some((id) =>
     keywordFlags(form.footnotes[id] ?? "", id).some(
@@ -120,7 +111,6 @@ const SCHEMA = {
   },
 }
 
-/** Step 7: keyword rules flag the purchases' footnotes and remarks, then Grok decides. */
 export async function reviewFootnotes(
   form: Form4,
   buys: Form4Transaction[]
@@ -152,7 +142,7 @@ export async function reviewFootnotes(
     null,
     2
   )
-  const res = await grokJson<{
+  const res = await mimoJson<{
     openMarket: boolean
     category: FootnoteCategory
     reason: string

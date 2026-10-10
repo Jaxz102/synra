@@ -2,11 +2,11 @@ import { assertTimeLeft, backoffMs, requestTimeout } from "@/lib/deadline"
 import { env } from "@/lib/env"
 import { sleep } from "@/lib/throttle"
 
-const XAI_URL = "https://api.x.ai/v1/chat/completions"
+const MIMO_URL = "https://api.xiaomimimo.com/v1/chat/completions"
 const MAX_RETRIES = 2
 const REQUEST_TIMEOUT_MS = 90_000
 
-export interface GrokJsonResult<T> {
+export interface MimoJsonResult<T> {
   data: T
   model: string
   promptTokens: number | null
@@ -19,16 +19,16 @@ interface ChatCompletion {
   usage?: { prompt_tokens?: number; completion_tokens?: number }
 }
 
-export async function grokJson<T>(opts: {
+export async function mimoJson<T>(opts: {
   system: string
   user: string
   schema: Record<string, unknown>
   schemaName: string
-}): Promise<GrokJsonResult<T>> {
-  if (!env.xaiApiKey) throw new Error("XAI_API_KEY is not set")
+}): Promise<MimoJsonResult<T>> {
+  if (!env.mimoApiKey) throw new Error("MIMO_API_KEY is not set")
 
   const body = JSON.stringify({
-    model: env.xaiModel,
+    model: env.mimoModel,
     messages: [
       { role: "system", content: opts.system },
       { role: "user", content: opts.user },
@@ -41,11 +41,11 @@ export async function grokJson<T>(opts: {
 
   for (let attempt = 0; ; attempt++) {
     assertTimeLeft()
-    const res = await fetch(XAI_URL, {
+    const res = await fetch(MIMO_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${env.xaiApiKey}`,
+        "api-key": env.mimoApiKey,
       },
       body,
       signal: requestTimeout(REQUEST_TIMEOUT_MS),
@@ -56,7 +56,7 @@ export async function grokJson<T>(opts: {
     }
     if (!res.ok) {
       throw new Error(
-        `xAI request failed (${res.status}): ${(await res.text()).slice(0, 300)}`
+        `MiMo request failed (${res.status}): ${(await res.text()).slice(0, 300)}`
       )
     }
     const json = (await res.json()) as ChatCompletion
@@ -65,11 +65,11 @@ export async function grokJson<T>(opts: {
     try {
       data = JSON.parse(content) as T
     } catch {
-      throw new Error(`Grok returned invalid JSON: ${content.slice(0, 200)}`)
+      throw new Error(`Mimo returned invalid JSON: ${content.slice(0, 200)}`)
     }
     return {
       data,
-      model: json.model ?? env.xaiModel,
+      model: json.model ?? env.mimoModel,
       promptTokens: json.usage?.prompt_tokens ?? null,
       completionTokens: json.usage?.completion_tokens ?? null,
     }

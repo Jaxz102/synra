@@ -47,6 +47,9 @@ export function RunsTable({ runs }: { runs: Run[] }) {
             <TableHead className="text-right">Sales</TableHead>
             <TableHead className="text-right">Other</TableHead>
             <TableHead className="text-right">10b5-1</TableHead>
+            <TableHead className="text-right" title="Not a director or officer">
+              Not D/O
+            </TableHead>
             <TableHead className="text-right">≤ $1</TableHead>
             <TableHead className="text-right">Routine</TableHead>
             <TableHead className="text-right">History</TableHead>
@@ -95,6 +98,7 @@ export function RunsTable({ runs }: { runs: Run[] }) {
                 r.skippedSell,
                 r.skippedNotPurchase,
                 r.skipped10b51,
+                r.skippedRelationship,
                 r.skippedPenny,
                 r.skippedRoutine,
                 r.skippedHistory,

@@ -190,6 +190,7 @@ export interface Stats {
   scanned: number
   scanned24h: number
   planned: number
+  relationship: number
   sells: number
   notPurchase: number
   penny: number
@@ -236,6 +237,7 @@ export async function getStats(): Promise<Stats> {
     scanned: scanned.n,
     scanned24h: scanned24h.n,
     planned: byStatus.get("skipped_10b5_1") ?? 0,
+    relationship: byStatus.get("skipped_relationship") ?? 0,
     sells: byStatus.get("skipped_sell") ?? 0,
     notPurchase: byStatus.get("skipped_not_purchase") ?? 0,
     penny: byStatus.get("skipped_penny") ?? 0,

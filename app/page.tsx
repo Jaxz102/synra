@@ -12,7 +12,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getDashboard, getPollStatus } from "@/lib/queries"
 
-/** Live run state, read once per request and shared by the header and the body. */
 const pollStatus = cache(async () => {
   await connection()
   return getPollStatus()
@@ -22,7 +21,6 @@ async function LivePollControls() {
   return <PollControls status={await pollStatus()} />
 }
 
-/** The tables: uncached status first, then the dashboard data cached by its version (lib/queries.ts). */
 async function DashboardBody() {
   const status = await pollStatus()
   const { stats, trades, filings, runs } = await getDashboard(status.version)
@@ -63,7 +61,6 @@ async function DashboardBody() {
   )
 }
 
-// Table skeletons while the reach dashboard loads
 function DashboardFallback() {
   return (
     <>

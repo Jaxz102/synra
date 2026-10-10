@@ -28,10 +28,6 @@ function create() {
 
 let db: Db | undefined
 
-/**
- * Drizzle over postgres.js. The pool is one per process and survives Next dev reloads; the Drizzle instance is rebuilt
- * when this module reloads, since its snake_case column cache would otherwise miss columns added to the schema.
- */
 export function getDb(): Db {
   return (db ??= create())
 }
@@ -55,9 +51,7 @@ export async function kvDelete(key: string): Promise<void> {
   await getDb().delete(schema.kv).where(eq(schema.kv.key, key))
 }
 
-/** `now()` for `updated_at` columns in upserts. */
 export const now = sql`now()`
 
-/** `COALESCE(new, existing)` for upserts — only overwrite a column when we learned something. */
 export const keep = (col: AnyPgColumn, v: unknown) =>
   sql`COALESCE(${v ?? null}, ${col})`

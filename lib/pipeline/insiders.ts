@@ -89,7 +89,7 @@ async function recordAnalysis(
 }
 
 /**
- * Step 4: the insider's routine/opportunistic/ineligible label. The first of their filings to reach step 4 runs the
+ * Step 5: the insider's routine/opportunistic/ineligible label. The first of their filings to reach step 5 runs the
  * lookup and stores the result on their `insiders` row; the label never changes after that, so later filings reuse
  * it without touching SEC. A label stored by an older rule (another `classifier`) is recomputed once. Every
  * evaluation is logged to `insider_analyses`.

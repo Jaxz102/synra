@@ -20,15 +20,11 @@ import type {
 import type { Form4 } from "@/lib/sec/form4"
 import type { IssuerProfile } from "@/lib/sec/issuer"
 
-// Column names are derived from the property names via `casing: "snake_case"` (see lib/db/index.ts and drizzle.config.ts).
-// Ids are SEC identifiers: stocks.id = issuer CIK, insiders.id = reporting-owner CIK, trades.id = accession number.
-
 const timestamps = {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 }
 
-/* ---------- Eraser ERD "Insider Trade Tracking" ---------- */
 
 export const stocks = pgTable(
   "stocks",
@@ -49,8 +45,6 @@ export const insiders = pgTable("insiders", {
   title: text(),
   relationship: text(),
   company: text(),
-  // Step 4 label (lib/pipeline/insiders.ts): set once by the first lookup, then reused for all the insider's filings.
-  // `traderType` repeats `traderEvaluation.verdict` as a plain column for SQL; both are written together.
   traderType: text().$type<InsiderVerdict>(),
   traderEvaluation: jsonb().$type<InsiderEvaluation>(),
   traderClassifiedAt: timestamp({ withTimezone: true }),
@@ -68,18 +62,10 @@ export interface TradeTransaction {
   footnotes: string[]
 }
 
-/**
- * Evidence behind the insider label. Older rows also hold the earlier rule's month grid (`criteria`) or, from before
- * the rule replaced Grok, `{ stats, filings }`; nothing reads those any more.
- */
 export interface TradeHistory {
   trades?: HistoryTrade[]
 }
 
-/**
- * A posted signal: an open-market purchase that passed every screening step in lib/pipeline/poll.ts and whose
- * Alpaca market buy filled. Rows posted before market orders replaced limit orders may hold unfilled orders.
- */
 export const trades = pgTable(
   "trades",
   {
@@ -96,23 +82,18 @@ export const trades = pgTable(
     totalValue: numeric({ precision: 18, scale: 2, mode: "number" }),
     tradeDate: text(),
     filingDate: text(),
-    // Dashboard detail beyond the ERD.
     postedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     sharesAfter: doublePrecision(),
     transactions: jsonb().$type<TradeTransaction[]>().notNull(),
-    // Insider criteria verdict (lib/pipeline/insider-criteria.ts); `classifier` names the rule, or the Grok model on older rows.
     classification: text(),
     reasoning: text(),
     patternSummary: text(),
     classifier: text(),
     history: jsonb().$type<TradeHistory>(),
     filingUrl: text(),
-    // Screening inputs: Finnhub market cap and the Alpaca price step 6 compared with the filing.
     marketCap: doublePrecision(),
     quotePrice: numeric({ precision: 18, scale: 4, mode: "number" }),
-    // Step 7 footnote review (lib/pipeline/footnotes.ts); null on rows posted before the step existed.
     footnoteReview: jsonb().$type<FootnoteReview>(),
-    // Alpaca paper market buy (see lib/alpaca/client.ts). The limit price and error are only set on older rows.
     alpacaOrderId: text(),
     alpacaClientOrderId: text(),
     alpacaOrderStatus: text(),
@@ -143,7 +124,6 @@ export const kv = pgTable("kv", {
 
 export const pollRuns = pgTable("poll_runs", {
   id: serial().primaryKey(),
-  // Only "schedule" (GET /api/cron/poll) is written now; "manual" and "cli" remain on older rows.
   trigger: text().$type<"schedule" | "manual" | "cli">().notNull(),
   status: text().$type<"running" | "success" | "error">().notNull(),
   startedAt: timestamp({ withTimezone: true }).notNull(),
@@ -153,18 +133,17 @@ export const pollRuns = pgTable("poll_runs", {
   feedEntries: integer().notNull().default(0),
   newFilings: integer().notNull().default(0),
   skipped10b51: integer("skipped_10b5_1").notNull().default(0),
+  skippedRelationship: integer().notNull().default(0),
   skippedSell: integer().notNull().default(0),
   skippedPenny: integer().notNull().default(0),
   skippedNotPurchase: integer().notNull().default(0),
   skippedListing: integer().notNull().default(0),
   skippedRoutine: integer().notNull().default(0),
-  /** Insiders without an open-market trade in each of the three preceding years. */
   skippedHistory: integer().notNull().default(0),
   skippedMarketCap: integer().notNull().default(0),
   skippedPrice: integer().notNull().default(0),
   skippedFootnotes: integer().notNull().default(0),
   skippedOrder: integer().notNull().default(0),
-  /** Filings that passed steps 1-4 (1-5 on older runs) while the market was closed; left queued for a later run. */
   deferred: integer().notNull().default(0),
   posted: integer().notNull().default(0),
   errors: integer().notNull().default(0),
@@ -177,6 +156,7 @@ export type FilingStatus =
   | "skipped_sell"
   | "skipped_not_purchase"
   | "skipped_10b5_1"
+  | "skipped_relationship"
   | "skipped_penny"
   | "skipped_routine"
   | "skipped_history"
@@ -188,7 +168,6 @@ export type FilingStatus =
   | "posted"
   | "error"
 
-/** Every Form 4 seen in the feed and what the pipeline decided about it. */
 export const filings = pgTable(
   "filings",
   {
@@ -211,7 +190,6 @@ export const filings = pgTable(
     indexUrl: text(),
     xmlUrl: text(),
     form: jsonb().$type<Form4>(),
-    /** Step 7 footnote review, kept for every filing that reached it. */
     footnoteReview: jsonb().$type<FootnoteReview>(),
   },
   (t) => [
@@ -220,7 +198,6 @@ export const filings = pgTable(
   ]
 )
 
-/** One row per insider-criteria evaluation (step 4), including the ones that never became a trade. */
 export const insiderAnalyses = pgTable(
   "insider_analyses",
   {

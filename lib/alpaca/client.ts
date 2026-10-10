@@ -1,6 +1,5 @@
 import { env } from "@/lib/env"
 
-/** Subset of Alpaca's order object that we keep (https://docs.alpaca.markets/reference/postorder). */
 export interface AlpacaOrder {
   id: string
   client_order_id: string
@@ -41,20 +40,14 @@ export class AlpacaError extends Error {
   }
 }
 
-/** Market data lives on its own host for both paper and live accounts. */
 const ALPACA_DATA_URL = "https://data.alpaca.markets"
 
 export function alpacaConfigured(): boolean {
   return Boolean(env.alpacaKey && env.alpacaSecret)
 }
 
-/**
- * Only production (`NODE_ENV=production`) sends write requests (orders, cancels) to Alpaca. Elsewhere
- * reads still go through, and writes are answered by stubs: a buy fills instantly at the screening price.
- */
 const writesStubbed = !env.isProduction
 
-/** Order ids of stubbed buys start with this, so local trades are easy to tell apart. */
 export const STUB_ORDER_PREFIX = "stub-"
 
 async function request<T>(
@@ -65,7 +58,6 @@ async function request<T>(
 ): Promise<T> {
   if (!alpacaConfigured())
     throw new AlpacaError("ALPACA_KEY / ALPACA_SECRET are not set", 0)
-  // Backstop for the stubs below: a write that reaches here outside production is a bug.
   if (method !== "GET" && writesStubbed)
     throw new Error(`Alpaca ${method} ${path} blocked outside production`)
   const res = await fetch(`${baseUrl}${path}`, {
@@ -112,11 +104,9 @@ export const getOrderByClientId = (clientOrderId: string) =>
 
 export interface LatestTrade {
   price: number
-  /** ISO timestamp of the trade. */
   at: string
 }
 
-/** Last trade on the configured feed (`ALPACA_DATA_FEED`); the free plan only gets real-time IEX. */
 export async function getLatestTrade(symbol: string): Promise<LatestTrade> {
   const res = await request<{ trade?: { p: number; t: string } | null }>(
     "GET",
@@ -145,7 +135,6 @@ export const cancelOrder = async (id: string): Promise<null> =>
     ? null
     : request<null>("DELETE", `/v2/orders/${encodeURIComponent(id)}`)
 
-/** The order placed under `clientOrderId`, or null when there is none. */
 export async function findOrderByClientId(
   clientOrderId: string
 ): Promise<AlpacaOrder | null> {
@@ -159,18 +148,11 @@ export async function findOrderByClientId(
 
 export interface BuyRequest {
   asset: AlpacaAsset
-  /** Dollar amount to buy. */
   notional: number
-  /** Latest price, used to size whole-share orders for non-fractionable assets. */
   price: number
-  /** Idempotency key; Alpaca rejects a second order with the same id. Max 128 chars. */
   clientOrderId: string
 }
 
-/**
- * Places a day market buy for `notional` dollars. Non-fractionable assets can't take notional orders,
- * so those fall back to `floor(notional / price)` whole shares (or throw when that is 0).
- */
 export async function placeMarketBuy(req: BuyRequest): Promise<AlpacaOrder> {
   const { asset } = req
   if (!asset.tradable || asset.status !== "active")
@@ -204,7 +186,6 @@ type OrderBody = Pick<
   "symbol" | "side" | "type" | "time_in_force" | "client_order_id"
 > & { notional?: string; qty?: string }
 
-/** What Alpaca would return for an order that filled at once at `price`. Nothing is sent. */
 function stubFill(order: OrderBody, price: number): AlpacaOrder {
   const now = new Date().toISOString()
   const qty = order.qty ? Number(order.qty) : Number(order.notional) / price

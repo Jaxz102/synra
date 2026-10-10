@@ -1,0 +1,1 @@
+ALTER TABLE "poll_runs" ADD COLUMN "skipped_relationship" integer DEFAULT 0 NOT NULL;
