@@ -1,5 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "bunVersion": "1.x",
-  "buildCommand": "if [ \"$VERCEL_ENV\" = production ]; then NODE_ENV=production bun run db:migrate; fi && bun run build"
+  "buildCommand": "if [ \"$VERCEL_ENV\" = production ]; then bun run db:migrate; fi && bun run build"
 }

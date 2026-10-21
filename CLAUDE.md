@@ -29,7 +29,7 @@ bun run db:psql / db:studio
 curl -H "Authorization: Bearer $CRON_SECRET" localhost:3000/api/cron/poll  # the only way to start a run (202; 409 if one is active)
 ```
 
-There is no test suite. Verify changes with `bun run typecheck`, `bun run lint`, and a local run through the cron endpoint (orders are stubbed outside production, see below).
+There is no test suite. Verify changes with `bun run typecheck`, `bun run lint`, and a local run through the cron endpoint (orders are stubbed outside production, see below). Changes to the step 8 footnote review (`lib/pipeline/footnotes.ts` prompt, schema or model) should be checked with `bun run eval:footnotes` (README "Evals"); `labels.json` is hand-labeled ground truth, so never edit labels to make a run pass.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ There is no test suite. Verify changes with `bun run typecheck`, `bun run lint`,
 
 **Database (`lib/db/`):** `schema.ts` is the source of truth; never hand-edit `drizzle/*.sql`. Drizzle uses `casing: "snake_case"` — write camelCase property names and column names are derived. Primary keys are SEC identifiers (`stocks.id` = issuer CIK, `insiders.id` = reporting-owner CIK, `trades.id` = accession number). The driver is postgres.js (`drizzle-orm/postgres-js`), chosen because it runs on both Bun locally and Node on Vercel; use Drizzle's built-in `jsonb()` for JSON columns (Bun.SQL, which needed a custom helper, is gone). `lib/db/index.ts` exports `getDb()`, `kvGet/kvSet/kvDelete`, and re-exports the schema; import from `@/lib/db`.
 
-**External clients:** `lib/sec/client.ts` `secFetch` serialises all SEC requests through a ~8 req/s gate with backoff — always go through it, never raw `fetch` to sec.gov. `lib/finnhub/client.ts` does the same at 1 req/s (free tier: 60/min). Both use `throttle()` from `lib/throttle.ts`. `lib/alpaca/client.ts` keys orders by accession number (`client_order_id`) so a filing is never bought twice. Alpaca, Finnhub and xAI keys are required: `runPoll` fails up front without them, which leaves the cursor in place. Alpaca should stay on the paper endpoint. Outside production (`!env.isProduction`) Alpaca write requests never go out: `placeMarketBuy` returns a stubbed instant fill (`stub-` order id), `cancelOrder` is a no-op, and `request()` throws on any other non-GET as a backstop. Reads still hit Alpaca. Any new Alpaca write must get a stub too.
+**External clients:** `lib/sec/client.ts` `secFetch` serialises all SEC requests through a ~8 req/s gate with backoff — always go through it, never raw `fetch` to sec.gov. `lib/finnhub/client.ts` does the same at 1 req/s (free tier: 60/min). Both use `throttle()` from `lib/throttle.ts`. `lib/alpaca/client.ts` keys orders by accession number (`client_order_id`) so a filing is never bought twice. Alpaca, Finnhub and xAI keys are required: `runPoll` fails up front without them, which leaves the cursor in place. Alpaca should stay on the paper endpoint. Outside production (`!env.isProduction`, i.e. `VERCEL_ENV` is not `production`; deliberately not `NODE_ENV`, which `next build` sets locally too) Alpaca write requests never go out: `placeMarketBuy` returns a stubbed instant fill (`stub-` order id), `cancelOrder` is a no-op, and `request()` throws on any other non-GET as a backstop. Reads still hit Alpaca. Any new Alpaca write must get a stub too.
 
 **Config:** all env access is centralised in `lib/env.ts` with defaults; add new variables there (and to `.env.example` / README table) rather than reading `process.env` elsewhere.
 
