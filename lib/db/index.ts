@@ -22,6 +22,7 @@ function create() {
     connect_timeout: 10,
     idle_timeout: 60,
     prepare: false,
+    connection: { application_name: "synra_app" },
   }))
   return drizzle({ client, schema, casing: "snake_case" })
 }

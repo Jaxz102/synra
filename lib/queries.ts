@@ -21,13 +21,8 @@ import {
   LAST_RUN_KEY,
 } from "@/lib/pipeline/poll"
 
-/*
- * Read models for the dashboard. Timestamps are ISO strings so rows can be handed straight to client components.
- */
-
 const iso = (d: Date | null) => (d ? d.toISOString() : null)
 
-/** A trade row as the signals table and dialog header need it; the heavy JSON lives in {@link TradeDetail}. */
 export interface Trade extends Pick<
   TradeRow,
   | "id"
@@ -100,16 +95,11 @@ export async function listTrades(limit = 200): Promise<Trade[]> {
   }))
 }
 
-/** The trade dialog's transaction table, footnote review and the insider's prior trades, loaded when the dialog opens. */
 export type TradeDetail = Pick<
   TradeRow,
   "transactions" | "history" | "footnoteReview"
 >
 
-/**
- * Posted trades never change after their fill, so the detail is cached per accession. `remote` keeps one entry shared
- * by every serverless instance; the default in-memory handler would rarely hit on Vercel.
- */
 export async function getTradeDetail(id: string): Promise<TradeDetail | null> {
   "use cache: remote"
   cacheLife("days")
@@ -255,7 +245,6 @@ export async function getStats(): Promise<Stats> {
 
 export interface PollStatus {
   running: { runId: number; startedAt: string } | null
-  /** The dashboard data version (see {@link getDashboard}). */
   version: string
   lastRunStartedAt: string | null
   lastRun: Run | null
@@ -269,7 +258,6 @@ export async function getPollStatus(): Promise<PollStatus> {
     kvGet(DATA_VERSION_KEY),
     listRuns(1),
   ])
-  // On Vercel the run lives in another invocation, so fall back to a recent run row still marked "running".
   const recent =
     lastRun?.status === "running" &&
     Date.now() - Date.parse(lastRun.startedAt) < 15 * 60_000
@@ -291,15 +279,10 @@ export interface Dashboard {
   runs: Run[]
 }
 
-/**
- * The dashboard tables, cached by data version: the poll bumps `kv.dashboard_version` when it posts a trade or ends a
- * run, so a new version is a cache miss and every viewer shares one read per version (`remote` shares the entry across
- * serverless instances). The hourly revalidate catches writes that don't bump it (e.g. closeStaleRuns).
- */
 export async function getDashboard(version: string): Promise<Dashboard> {
   "use cache: remote"
   cacheLife("hours")
-  void version // only the cache key
+  void version
   const [stats, trades, filings, runs] = await Promise.all([
     getStats(),
     listTrades(),
