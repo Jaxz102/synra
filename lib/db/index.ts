@@ -22,6 +22,8 @@ function create() {
     connect_timeout: 10,
     idle_timeout: 60,
     prepare: false,
+    // Tags our sessions so PlanetScale Insights can tell app queries from its own monitoring.
+    connection: { application_name: "synra_app" },
   }))
   return drizzle({ client, schema, casing: "snake_case" })
 }
