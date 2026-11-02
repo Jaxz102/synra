@@ -102,7 +102,7 @@ export function SignalsTable({
                 <TableCell>
                   <Badge
                     variant="outline"
-                    className="border-transparent bg-primary/15 text-primary dark:bg-primary/25 dark:text-primary-foreground"
+                    className="border-transparent bg-emerald-100 text-emerald-700"
                   >
                     {t.classification === "opportunistic"
                       ? "Opportunistic"
