@@ -6,22 +6,10 @@ import {
   listInsiderForm4s,
 } from "@/lib/sec/insider"
 
-/*
- * Step 5 insider criteria ("Decoding Inside Information", per the "SEC Filtering Pipeline" Linear doc):
- * - eligible: at least one open-market trade (Form 4 code P or S, non-derivative) in each of the three preceding
- *   calendar years; option exercises, other codes and trades the footnotes call private don't count,
- * - routine: an eligible insider who traded in the filing's trade month in each of those years (for an October 2026
- *   trade: October 2025, 2024 and 2023),
- * - opportunistic: eligible and not routine.
- * Trades in every issuer count, since the rule profiles the insider rather than the stock. The label is stored on the
- * insider for good (lib/pipeline/insiders.ts).
- */
-
 export const CLASSIFIER = "rule:3y-active+trade-month"
 
 export type InsiderVerdict = "routine" | "opportunistic" | "ineligible"
 
-/** One open-market trade from the insider's history, shown as evidence on the dashboard. */
 export interface HistoryTrade {
   accession: string
   date: string
@@ -36,9 +24,7 @@ export interface HistoryTrade {
 export interface InsiderEvaluation {
   verdict: InsiderVerdict
   summary: string
-  /** The open-market trades the lookup found in the periods it checked. */
   trades: HistoryTrade[]
-  /** The rule that produced the label; labels from an older rule (absent here) are recomputed. */
   classifier?: string
 }
 
@@ -96,11 +82,6 @@ async function scanYear(
   return { inMonth: [], inYear }
 }
 
-/**
- * Looks up whether the insider traded in each of the three preceding years (eligibility) and in the trade's month in
- * each of them (routine). Only Form 4s that can cover those years are downloaded, years with the fewest candidate
- * filings first, and the lookup stops at the first year without any trade.
- */
 export async function lookupInsider(
   ownerCik: string,
   tradeDate: string
