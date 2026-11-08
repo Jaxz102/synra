@@ -15,15 +15,19 @@ import {
 } from "@/components/ui/table"
 import { fmtDateTime, fmtInt } from "@/lib/format"
 import type { Run } from "@/lib/queries"
+import { useNow } from "@/lib/use-now"
 
-function duration(r: Run): string {
-  const end = r.finishedAt ? Date.parse(r.finishedAt) : Date.now()
+function duration(r: Run, now: number | null): string {
+  // A running run's duration depends on the clock; blank until hydrated.
+  const end = r.finishedAt ? Date.parse(r.finishedAt) : now
+  if (end === null) return ""
   const s = Math.max(0, Math.round((end - Date.parse(r.startedAt)) / 1000))
   return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`
 }
 
 export function RunsTable({ runs }: { runs: Run[] }) {
   const pagination = usePagination(runs)
+  const now = useNow()
   if (runs.length === 0) {
     return (
       <div className="rounded-xl border border-dashed py-16 text-center text-sm text-muted-foreground">
@@ -84,7 +88,7 @@ export function RunsTable({ runs }: { runs: Run[] }) {
                   </Badge>
                 )}
               </TableCell>
-              <TableCell className="tabular-nums">{duration(r)}</TableCell>
+              <TableCell className="tabular-nums">{duration(r, now)}</TableCell>
               <TableCell className="text-right tabular-nums">
                 {fmtInt(r.feedEntries)}
               </TableCell>

@@ -10,6 +10,7 @@ import { StatTiles } from "@/components/dashboard/stat-tiles"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { fmtDateTime } from "@/lib/format"
 import { getDashboard, getPollStatus } from "@/lib/queries"
 
 const pollStatus = cache(async () => {
@@ -36,15 +37,7 @@ async function DashboardBody() {
             <TabsTrigger value="runs">Poll runs</TabsTrigger>
           </TabsList>
           <p className="text-xs text-muted-foreground">
-            Cursor{" "}
-            {status.cursor
-              ? new Date(status.cursor).toLocaleString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                })
-              : "not set"}
+            Cursor {status.cursor ? fmtDateTime(status.cursor) : "not set"}
           </p>
         </div>
         <TabsContent value="signals">

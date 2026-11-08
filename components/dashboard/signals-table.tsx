@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table"
 import { fmtDate, fmtInt, fmtMoneyLarge, fmtRelative } from "@/lib/format"
 import type { Trade } from "@/lib/queries"
+import { useNow } from "@/lib/use-now"
 
 export function SignalsTable({
   trades,
@@ -29,6 +30,7 @@ export function SignalsTable({
 }) {
   const [open, setOpen] = React.useState<Trade | null>(null)
   const pagination = usePagination(trades)
+  const now = useNow()
 
   if (trades.length === 0) {
     return (
@@ -110,7 +112,7 @@ export function SignalsTable({
                   </Badge>
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-muted-foreground">
-                  {fmtRelative(t.postedAt)}
+                  {now === null ? "" : fmtRelative(t.postedAt, now)}
                 </TableCell>
                 <TableCell>
                   {t.filingUrl && (

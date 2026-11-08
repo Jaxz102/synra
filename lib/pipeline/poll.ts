@@ -417,7 +417,7 @@ async function evaluateFiling(
     return status
   }
 
-  if (form.documentType !== "4"){
+  if (form.documentType !== "4") {
     return skip("skipped_not_purchase", `Document type ${form.documentType}`)
   }
 
@@ -443,7 +443,7 @@ async function evaluateFiling(
     )
   }
 
-  if (form.aff10b5One){
+  if (form.aff10b5One) {
     return skip("skipped_10b5_1", "Rule 10b5-1 checkbox is checked")
   }
 
@@ -547,7 +547,6 @@ async function evaluateFiling(
         "skipped_market_cap",
         `Market cap ${fmtMoneyCompact(marketCap)} is below ${fmtMoneyCompact(MIN_MARKET_CAP)}`
       )
-
 
     if (!isListed(asset))
       return skip(
@@ -759,9 +758,14 @@ async function poll(
     const fresh = delta.filings.filter(
       (f) => !seen.has(f.accession) && !known.has(f.accession)
     )
-    const queue = [...retries, ...fresh].slice(0, opts.limit ?? Number.POSITIVE_INFINITY)
+    const queue = [...retries, ...fresh].slice(
+      0,
+      opts.limit ?? Number.POSITIVE_INFINITY
+    )
     counters.new_filings = fresh.length
-    log(`${delta.filings.length} filings in delta, ${fresh.length} new, ${retries.length} retries, processing ${queue.length}${delta.reachedCursor ? "" : " (feed paging limit reached before cursor)"}`)
+    log(
+      `${delta.filings.length} filings in delta, ${fresh.length} new, ${retries.length} retries, processing ${queue.length}${delta.reachedCursor ? "" : " (feed paging limit reached before cursor)"}`
+    )
     await insertFilings(fresh, runId)
     await persist("running")
 

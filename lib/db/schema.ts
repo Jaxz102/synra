@@ -25,7 +25,6 @@ const timestamps = {
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 }
 
-
 export const stocks = pgTable(
   "stocks",
   {

@@ -7,6 +7,7 @@ import * as React from "react"
 import { checkDashboard } from "@/app/actions"
 import { fmtRelative } from "@/lib/format"
 import type { PollStatus } from "@/lib/queries"
+import { useNow } from "@/lib/use-now"
 
 const CHECK_MS = 30_000
 
@@ -14,12 +15,7 @@ export function PollControls({ status }: { status: PollStatus }) {
   const router = useRouter()
   const running = !!status.running
   const { version } = status
-  const [, tick] = React.useReducer((x: number) => x + 1, 0)
-
-  React.useEffect(() => {
-    const id = setInterval(tick, 60_000)
-    return () => clearInterval(id)
-  }, [])
+  const now = useNow()
 
   React.useEffect(() => {
     let busy = false
@@ -54,7 +50,7 @@ export function PollControls({ status }: { status: PollStatus }) {
             <>
               Last poll{" "}
               <span className="text-foreground">
-                {fmtRelative(status.lastRunStartedAt)}
+                {now === null ? "" : fmtRelative(status.lastRunStartedAt, now)}
               </span>
             </>
           )}

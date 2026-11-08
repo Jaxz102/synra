@@ -51,14 +51,32 @@ export function fmtPct(n: number | null | undefined): string {
   return `${Math.round(n * 100)}%`
 }
 
+const DISPLAY_TIME_ZONE = "America/New_York"
+
+// Formatted separately and joined by hand: engines disagree on the combined
+// pattern (Bun "Dec 1 at 9:30 AM", Chrome "Dec 1, 9:30 AM").
+const dateTimeDate = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: DISPLAY_TIME_ZONE,
+})
+const dateTimeTime = new Intl.DateTimeFormat("en-US", {
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: DISPLAY_TIME_ZONE,
+})
+
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—"
-  const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso)
+
+  const dateOnly = iso.length === 10
+  const d = new Date(dateOnly ? `${iso}T00:00:00Z` : iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: dateOnly ? "UTC" : DISPLAY_TIME_ZONE,
   })
 }
 
@@ -66,12 +84,7 @@ export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return "—"
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  })
+  return `${dateTimeDate.format(d)}, ${dateTimeTime.format(d)}`
 }
 
 export function fmtRelative(
